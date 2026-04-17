@@ -3,6 +3,7 @@ use std::{
     fs::{self},
 };
 
+#[derive(Debug)]
 enum Op {
     Nop,
     Add,
@@ -11,8 +12,6 @@ enum Op {
     Div,
     Pwr,
     Mod,
-    Inc,
-    Dec,
     Lsl,
     Lsr,
     BwNot, // '~'
@@ -22,20 +21,20 @@ enum Op {
     LgNot, // '!'
     LgOr,
     LgAnd,
+    Asgn,
+    AddAsgn,
+    SubAsgn,
+    MulAsgn,
+    DivAsgn,
+    PwrAsgn,
+    ModAsgn,
+    AndAsgn,
+    OrAsgn,
+    XorAsgn,
+    LslAsgn,
+    LsrAsgn,
     Eq,
-    AddEq,
-    SubEq,
-    MulEq,
-    DivEq,
-    PwrEq,
-    ModEq,
-    AndEq,
-    OrEq,
-    XorEq,
-    LslEq,
-    LsrEq,
-    Equiv,
-    NEquiv,
+    Neq,
     Lt,
     Gt,
     Lte,
@@ -54,7 +53,7 @@ enum TokenType {
     KwElse,
     KwWhile,
     KwExit,
-    Op(String),
+    Op(Op),
     DelimLparen,
     DelimRparen,
     DelimLcurly,
@@ -64,10 +63,10 @@ enum TokenType {
     DelimComma,
     LitInt(i128),
     VarIdent(String),
-    EOF,
+    Null,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 struct LocData {
     line: usize,
     col: usize,
@@ -99,33 +98,36 @@ impl Lexer {
 
     pub fn tokenize(&mut self, path: &str) -> Result<(), Box<dyn Error>> {
         let f_str = fs::read_to_string(path)?;
-        println!("File string: {}", f_str);
+        let mut file_iter = f_str.chars().peekable();
+        println!("File string: \n{}", f_str);
         let mut buf = String::new();
 
-        for ch in f_str.chars() {
+        while let Some(ch) = file_iter.next() {
             self.col_ct += 1;
+            let loc = LocData {
+                line: self.line_ct,
+                col: self.col_ct,
+            };
             match ch {
+                ';' => {
+                    if !buf.is_empty() {
+                        self.tokens.push(self.classify_token(&buf, loc)?);
+                        buf.clear();
+                    }
+                    self.tokens.push(Token {
+                        kind: TokenType::DelimSemi,
+                        loc,
+                    });
+                }
                 ' ' => {
                     if !buf.is_empty() {
-                        self.tokens.push(self.classify_token(
-                            &buf,
-                            LocData {
-                                line: self.line_ct,
-                                col: self.col_ct,
-                            },
-                        )?);
+                        self.tokens.push(self.classify_token(&buf, loc)?);
                         buf.clear();
                     }
                 }
                 '\n' => {
                     if !buf.is_empty() {
-                        self.tokens.push(self.classify_token(
-                            &buf,
-                            LocData {
-                                line: self.line_ct,
-                                col: self.col_ct,
-                            },
-                        )?);
+                        self.tokens.push(self.classify_token(&buf, loc)?);
                         buf.clear();
                     }
                     self.line_ct += 1;
@@ -133,26 +135,90 @@ impl Lexer {
                 }
                 '_' => buf.push(ch),
                 _ => {
-                    if !ch.is_ascii_alphanumeric() && !buf.is_empty() {
-                        // Symbol or operator
-                        self.tokens.push(self.classify_token(
-                            &buf,
-                            LocData {
+                    // Existing identifiers
+                    if ch.is_ascii_alphanumeric() {
+                        buf.push(ch);
+                    } else {
+                        if !buf.is_empty()
+                            && buf.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                        {
+                            self.tokens.push(self.classify_token(&buf, loc)?);
+                            buf.clear();
+                        }
+
+                        // Operators
+                        buf.push(ch);
+                        if let Some(&doub_op) = file_iter.peek()
+                            && "+-*/<>=|&^!%".contains(doub_op)
+                        {
+                            buf.push(doub_op);
+                            file_iter.next();
+                            self.col_ct += 1;
+                            if let Some(&trip_op) = file_iter.peek()
+                                && "+-*/<>=|&^!%".contains(trip_op)
+                            {
+                                buf.push(trip_op);
+                                file_iter.next();
+                                self.col_ct += 1;
+                            }
+                        }
+
+                        self.tokens.push(Token {
+                            kind: TokenType::Op(self.classify_op(&buf)),
+                            loc: LocData {
                                 line: self.line_ct,
                                 col: self.col_ct,
                             },
-                        )?);
+                        });
                         buf.clear();
                     }
-                    buf.push(ch);
                 }
             }
         }
-        println!("Token: {:?}", self.tokens);
-
-        // TODO: Implement operator classifier with tok vector
-
+        println!("Tokens: {:#?}", self.tokens);
         Ok(())
+    }
+
+    fn classify_op(&self, op: &str) -> Op {
+        match op {
+            "+" => Op::Add,
+            "-" => Op::Sub,
+            "*" => Op::Mul,
+            "/" => Op::Div,
+            "%" => Op::Mod,
+            "**" => Op::Pwr,
+            "&" => Op::BwAnd,
+            "|" => Op::BwOr,
+            "^" => Op::BwXor,
+            "~" => Op::BwNot,
+            "<<" => Op::Lsl,
+            ">>" => Op::Lsr,
+            "=" => Op::Asgn,
+            "+=" => Op::AddAsgn,
+            "-=" => Op::SubAsgn,
+            "*=" => Op::MulAsgn,
+            "/=" => Op::DivAsgn,
+            "%=" => Op::ModAsgn,
+            "**=" => Op::PwrAsgn,
+            "&=" => Op::AndAsgn,
+            "|=" => Op::OrAsgn,
+            "^=" => Op::XorAsgn,
+            "<<=" => Op::LslAsgn,
+            ">>=" => Op::LsrAsgn,
+            ">" => Op::Gt,
+            "<" => Op::Lt,
+            ">=" => Op::Gte,
+            "<=" => Op::Lte,
+            "==" => Op::Eq,
+            "!=" => Op::Neq,
+            "&&" => Op::LgAnd,
+            "||" => Op::LgOr,
+            "!" => Op::LgNot,
+            _ => {
+                println!("NOP Operator: {}", op);
+                Op::Nop
+            }
+        }
     }
 
     // pub fn peek(&self, offset: usize) -> Option<&Token> {}
@@ -232,22 +298,23 @@ impl Lexer {
                 loc,
             }),
             symbol => {
-                if "+-*/<>=|&^!%".contains(symbol) {
-                    Ok(Token {
-                        kind: TokenType::Op(String::from(symbol)),
-                        loc,
-                    })
-                } else if symbol.chars().all(|c| c.is_ascii_digit()) {
-                    Ok(Token {
-                        kind: TokenType::LitInt(symbol.parse::<i128>().unwrap()),
-                        loc,
-                    })
-                } else {
-                    Ok(Token {
-                        kind: TokenType::VarIdent(String::from(symbol)),
-                        loc,
-                    })
+                if !symbol.is_empty() {
+                    if symbol.chars().all(|c| c.is_ascii_digit()) {
+                        return Ok(Token {
+                            kind: TokenType::LitInt(symbol.parse::<i128>()?),
+                            loc,
+                        });
+                    } else {
+                        return Ok(Token {
+                            kind: TokenType::VarIdent(String::from(symbol)),
+                            loc,
+                        });
+                    }
                 }
+                Ok(Token {
+                    kind: TokenType::Null,
+                    loc: LocData { line: 0, col: 0 },
+                })
             }
         }
     }
