@@ -1,23 +1,19 @@
 use crate::{
     ast::{self, UnionNode},
     diagnostics::DiagHandler,
-    lexer::SymbolTable,
 };
-use std::{cell::RefCell, error::Error, rc::Rc};
+use std::{error::Error, rc::Rc};
 
 pub struct Sema;
 impl Sema {
     fn visit_expr(expr: &ast::Expr, diag: &mut DiagHandler) {
         if expr.lhs.is_none() && expr.rhs.is_none() {
-            match expr.kind {
-                ast::ExprKind::Ident(sym) => {
-                    let mut extracted_type = ast::Type::default();
-
-                    // Search if sym exists
-                    // if symtable.contains(sym.name) {}
+            match expr.atom {
+                ast::AtomKind::Ident(_) => {
+                    let extracted_type = ast::Type::default();
                     expr.ty.set(Some(extracted_type));
                 }
-                ast::ExprKind::IntLit(_) => expr.ty.set(Some(ast::Type::Int)),
+                ast::AtomKind::IntLit(_) => expr.ty.set(Some(ast::Type::Int)),
                 _ => unreachable!(),
             }
         }
@@ -59,6 +55,10 @@ impl Sema {
         prog: &mut ast::Program,
         diag: &mut DiagHandler,
     ) -> Result<(), Box<dyn Error>> {
+        dbg!("AST: {:#?}", &prog);
+        print!("Diagnostics at validate_program()");
+        diag.display_diagnostics();
+
         for stmt in &prog.stmts {
             match stmt.clone() {
                 UnionNode::VarDecl(decl) => {

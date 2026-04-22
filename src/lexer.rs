@@ -258,6 +258,7 @@ impl Lexer {
         }
         if kind == TokenType::NewLine {
             self.line_ct += 1;
+            self.col_ct = 0;
         }
         if !matches!(kind, TokenType::WhiteSpace | TokenType::NewLine) {
             self.tokens.push(Token { kind, loc });

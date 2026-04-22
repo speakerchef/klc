@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{ast::Type, lexer::LocData};
+use crate::{ lexer::LocData};
 use thiserror::Error;
 
 #[derive(Clone, Copy, Debug)]

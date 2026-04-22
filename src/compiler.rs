@@ -1,11 +1,9 @@
-use std::cell::RefCell;
 use std::error::Error;
 use std::fs;
-use std::rc::Rc;
 
-use crate::diagnostics::{self, DiagHandler};
+use crate::diagnostics::{ DiagHandler};
 use crate::lexer::Lexer;
-use crate::parser::{self, Parser};
+use crate::parser::{ Parser};
 use crate::semantics::Sema;
 pub struct CompileOptions {
     pub src_pth: String,

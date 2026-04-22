@@ -1,7 +1,6 @@
 use crate::lexer::{LocData, SymbolTable, TokenType};
-use std::cell::{Cell, RefCell};
+use std::cell::{Cell, };
 use std::fmt::Display;
-use std::ops::DerefMut;
 use std::{collections::HashMap, rc::Rc};
 
 use crate::lexer::{Op, Symbol};
@@ -72,7 +71,7 @@ pub struct IntLit {
 }
 
 #[derive(Debug, Default, Clone)]
-pub enum ExprKind {
+pub enum AtomKind {
     #[default]
     None,
     Ident(Ident),
@@ -81,7 +80,8 @@ pub enum ExprKind {
 
 #[derive(Debug, Default, Clone)]
 pub struct Expr {
-    pub kind: ExprKind,
+    pub atom: AtomKind,
+    pub op: Op,
     pub lhs: Option<Box<Expr>>,
     pub rhs: Option<Box<Expr>>,
     pub ty: Cell<Option<Type>>,
@@ -122,7 +122,7 @@ pub struct Call {
 
 #[derive(Debug, Clone)]
 pub struct StmtExit {
-    pub exit_code: Expr,
+    pub exit_code: Option<Expr>,
     pub loc: LocData,
 }
 

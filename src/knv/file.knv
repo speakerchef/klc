@@ -1,1 +1,2 @@
-let hello: string = 15;
+let hello: int = ((6 - 4) * 9 | 420);
+exit hello;
