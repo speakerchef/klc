@@ -1,0 +1,9 @@
+pub mod ast;
+pub mod backend;
+pub mod compiler;
+pub mod diagnostics;
+pub mod irgenerator;
+pub mod lexer;
+pub mod parser;
+pub mod semantics;
+pub mod traits;
