@@ -1,8 +1,12 @@
-# KLC: KNOB-Lang-Compiler
+# Knob-C: Knob-Compiler
 >(This is a Rust Re-write of the original; [Original C++ Version](https://github.com/speakerchef/klc-compiler))
+>Re-write also includes and will include a great deal of architectural changes both internally and language-definition wise.
 
-A from scratch compiler for **KNOB** (**K**ompiled **NOB**) — a statically typed, semicolon delimited language that I'm creating that compiles down to AArch64 assembly: Uses `.knv` as the file extension.
+KnobC is a compiler for the **KNOB** (**K**ompiled **NOB**) language built from scratch —
+`Knob` is a statically typed, AOT-compiled language I'm creating that emits a custom defined IR (Intermediate Representation), emitting assembly for a few backends: Namely AArch64 & x86_64(eventually):
+> [!NOTE] The original C++ version of the compiler emitted raw AArch64 assembly. The new re-write with an MIR level will allow for optimization passes, multiple backends, and other cool stuff!
 
+Uses `.knv` as the file extension.
 > *Why `.knv` and not `.knb`?*
 > Everyone knows the true perfect language prioritizes ergonomics over sensible standards. `v` is easier to hit from the home row than `b`. You're welcome.
 
@@ -11,18 +15,32 @@ A from scratch compiler for **KNOB** (**K**ompiled **NOB**) — a statically typ
 ## Architecture
 
 ```
-source.knv → Lexer → Pratt Parser → AST → Codegen → AArch64 ASSEMBLY → clang/ld → executable
+Source → Lexer → Parser → AST → Type-Checking / Semantic Analysis → Typed-AST → MIR → Optimization Pass(es) → Backend → Assembly Codegen → Link Runtime → Executable
 ```
 
 - **Lexer/Tokenizer** — tokenizes `.knv` source into a stream of typed tokens
-- **Parser** — Pratt-Parsing with precedence climbing for binary expressions and Recursive-Descent parsing for the rest, producing an AST.
-- **Codegen** — Currently direct AST emission to assembly targeting AArch64 (Apple Silicon / macOS Darwin ABI). (x86_64 support in the future). No LLVM IR or other backends/deps.
+- **Parser** — Pratt-Parsing with precedence climbing for expressions and Recursive-Descent parsing for the rest, producing an untyped-AST.
+- Type-Checking and Semantic Analysis that resolves types and mutates the untyped-AST into a typed-AST. Semantic errors are also evaluated here.
+- Typed-AST is walked and Knob-MIR is emitted for each node/operation/etc...
+- Optimization (Later scope): Will analyze the IR for patterns to exploit and optimize
+- **Codegen** — Currently targeting only AArch64 (Apple Silicon / macOS Darwin ABI). (x86_64 support in the future). No LLVM or other backends/deps.
 
 ---
 
 ## Language features
 
 >KNOB is a fun project of mine still under active construction.
+
+### Types (so far)
+>[!NOTE] Full type suite is not currently implemented.
+
+| Class | Variants |
+|---------|-------------|
+| `Integers`   | `u8/i8`, `u16/i16`, `u32/i32`, `u64/i64`, `usize` (semantic alias to `u64/u32`)|
+| `Characters`   | `char` & `byte` (both aliased to `u8`)|
+| `Floating Point`  | `f32`, `f64`|
+| `Strings`    | `string` - likely aliased to a `u8` array of valid UTF-8 (hello rust XD)|
+| `Boolean`  | `bool` w/ opts `true` & `false`|
 
 ### Keywords (so far)
 
@@ -50,6 +68,7 @@ source.knv → Lexer → Pratt Parser → AST → Codegen → AArch64 ASSEMBLY �
 | Unary | `-` | negation |
 | Operate-Assign | `+=` `-=` `*=` `/=` `%=` `**=` `&=` `\|=` `<<=` `>>=` | Combine operation and assignment |
 
+>[!NOTE] Below this is stale from the original C++ codebase - will update as things move
 ### Other Features
 
 - Parenthesized expressions with correct grouping: `(a + b) * (c - d)`

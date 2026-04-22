@@ -1,4 +1,5 @@
 use crate::traits::Iter;
+use core::f64;
 use std::{
     collections::HashMap,
     error::Error,
@@ -65,8 +66,8 @@ impl Display for Op {
             Op::Sub => write!(f, "-"),
             Op::Mul => write!(f, "*"),
             Op::Div => write!(f, "/"),
-            Op::Pwr => write!(f, "**"),
             Op::Mod => write!(f, "%"),
+            Op::Pwr => write!(f, "**"),
             Op::Lsl => write!(f, "<<"),
             Op::Lsr => write!(f, ">>"),
             Op::BwNot => write!(f, "~"),
@@ -101,13 +102,23 @@ impl Display for Op {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub struct Symbol(pub u32);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum TokenType {
-    KwInt,
-    KwFloat,
-    KwChar,
-    KwString,
-    KwBool,
+    Ti8,
+    Ti16,
+    Ti32,
+    Ti64,
+    Tu8,
+    Tu16,
+    Tu32,
+    Tu64,
+    Tf32,
+    Tf64,
+    Tusize,
+    Tchar,
+    Tbyte,
+    Tstring,
+    Tbool,
     KwReturn,
     KwFn,
     KwLet,
@@ -128,6 +139,10 @@ pub enum TokenType {
     Rsquare,
     Comma,
     IntLit(i128),
+    CharLit(i128),
+    ByteLit(i128),
+    BoolLit(bool),
+    FloatLit(f64),
     VarIdent(Symbol),
 
     #[default]
@@ -374,24 +389,64 @@ impl Lexer {
 
     fn classify_token(&mut self, tok: &str, loc: LocData) -> Result<Token, Box<dyn Error>> {
         match tok {
-            "int" => Ok(Token {
-                kind: TokenType::KwInt,
+            "i8" => Ok(Token {
+                kind: TokenType::Ti8,
                 loc,
             }),
-            "float" => Ok(Token {
-                kind: TokenType::KwFloat,
+            "i16" => Ok(Token {
+                kind: TokenType::Ti16,
+                loc,
+            }),
+            "i32" => Ok(Token {
+                kind: TokenType::Ti32,
+                loc,
+            }),
+            "i64" => Ok(Token {
+                kind: TokenType::Ti64,
+                loc,
+            }),
+            "u8" => Ok(Token {
+                kind: TokenType::Tu8,
+                loc,
+            }),
+            "u16" => Ok(Token {
+                kind: TokenType::Tu16,
+                loc,
+            }),
+            "u32" => Ok(Token {
+                kind: TokenType::Tu32,
+                loc,
+            }),
+            "u64" => Ok(Token {
+                kind: TokenType::Tu64,
+                loc,
+            }),
+            "usize" => Ok(Token {
+                kind: TokenType::Tusize,
+                loc,
+            }),
+            "f32" => Ok(Token {
+                kind: TokenType::Tf32,
+                loc,
+            }),
+            "f64" => Ok(Token {
+                kind: TokenType::Tf64,
+                loc,
+            }),
+            "byte" => Ok(Token {
+                kind: TokenType::Tbyte,
                 loc,
             }),
             "char" => Ok(Token {
-                kind: TokenType::KwChar,
+                kind: TokenType::Tchar,
                 loc,
             }),
             "bool" => Ok(Token {
-                kind: TokenType::KwBool,
+                kind: TokenType::Tbool,
                 loc,
             }),
             "string" => Ok(Token {
-                kind: TokenType::KwString,
+                kind: TokenType::Tstring,
                 loc,
             }),
             "exit" => Ok(Token {
