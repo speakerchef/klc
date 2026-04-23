@@ -1,9 +1,9 @@
 use std::error::Error;
 use std::fs;
 
-use crate::diagnostics::{ DiagHandler};
+use crate::diagnostics::DiagHandler;
 use crate::lexer::Lexer;
-use crate::parser::{ Parser};
+use crate::parser::Parser;
 use crate::semantics::Sema;
 pub struct CompileOptions {
     pub src_pth: String,

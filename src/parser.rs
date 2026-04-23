@@ -96,20 +96,30 @@ impl Parser<'_> {
                 let tytok = self.lex.next().unwrap_or(&default); // eat ':'
                 if !matches!(
                     tytok.kind,
-                    TokenType::KwInt
-                        | TokenType::KwFloat
-                        | TokenType::KwBool
-                        | TokenType::KwChar
-                        | TokenType::KwString
+                    TokenType::Ti8
+                        | TokenType::Ti16
+                        | TokenType::Ti32
+                        | TokenType::Ti64
+                        | TokenType::Tu8
+                        | TokenType::Tu16
+                        | TokenType::Tu32
+                        | TokenType::Tu64
+                        | TokenType::Tf32
+                        | TokenType::Tf64
+                        | TokenType::Tusize
+                        | TokenType::Tchar
+                        | TokenType::Tbyte
+                        | TokenType::Tstring
+                        | TokenType::Tbool
                 ) {
                     self.diagnostics.push_err(
                         tytok.loc,
-                        &format!("expected type specifier; got `{:?}`", tytok.kind),
+                        &format!("expected type specifier; got {}", tytok.kind),
                     );
                 } else {
                     decl.decl_type = Some(Type::from(tytok.kind));
-                    self.lex.next(); // eat typename
                 }
+                self.lex.next(); // eat typename
             }
             if !self.validate_tok(TokenType::Op(Op::Asgn)) {
                 self.diagnostics
@@ -183,7 +193,7 @@ impl Parser<'_> {
                 TokenType::IntLit(val) => {
                     lhs = Some(ast::Expr::default());
                     lhs.as_mut().unwrap().atom = AtomKind::IntLit(ast::IntLit {
-                        val: val,
+                        val,
                         loc: operand.loc,
                     });
                     lhs.as_mut().unwrap().loc = operand.loc;

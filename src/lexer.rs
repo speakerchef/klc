@@ -1,14 +1,6 @@
 use crate::traits::Iter;
 use core::f64;
-use std::{
-    collections::HashMap,
-    error::Error,
-    fmt::Display,
-    fs::{self},
-    panic,
-    rc::Rc,
-    usize,
-};
+use std::{collections::HashMap, error::Error, fmt::Display, panic, rc::Rc, usize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Op {
@@ -154,10 +146,7 @@ pub enum TokenType {
 
 impl TokenType {
     pub fn is_op(&self) -> bool {
-        match *self {
-            TokenType::Op(_) => true,
-            _ => false,
-        }
+        matches!(*self, TokenType::Op(_))
     }
 
     pub fn char_to_token(ch: char) -> TokenType {
@@ -173,6 +162,40 @@ impl TokenType {
             '[' => TokenType::Lsquare,
             ']' => TokenType::Rsquare,
             _ => panic!("Unknown char found: {ch}"),
+        }
+    }
+}
+
+impl Display for TokenType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TokenType::KwReturn => write!(f, "KwReturn"),
+            TokenType::KwFn => write!(f, "KwFn"),
+            TokenType::KwLet => write!(f, "KwLet"),
+            TokenType::KwMut => write!(f, "KwMut"),
+            TokenType::KwIf => write!(f, "KwIf"),
+            TokenType::KwElif => write!(f, "KwElif"),
+            TokenType::KwElse => write!(f, "KwElse"),
+            TokenType::KwWhile => write!(f, "KwWhile"),
+            TokenType::KwExit => write!(f, "KwExit"),
+            TokenType::Op(op) => write!(f, "{}", op),
+            TokenType::Semi => write!(f, "Semi"),
+            TokenType::Colon => write!(f, "Color"),
+            TokenType::Lparen => write!(f, "Lparen"),
+            TokenType::Rparen => write!(f, "Rparen"),
+            TokenType::Lcurly => write!(f, "Lcurly"),
+            TokenType::Rcurly => write!(f, "Rcurly"),
+            TokenType::Lsquare => write!(f, "Lsquare"),
+            TokenType::Rsquare => write!(f, "Rsquare"),
+            TokenType::Comma => write!(f, "Comma"),
+            TokenType::IntLit(_) => write!(f, "IntLit"),
+            TokenType::CharLit(_) => write!(f, "CharLit"),
+            TokenType::ByteLit(_) => write!(f, "ByteLit"),
+            TokenType::BoolLit(_) => write!(f, "BoolLit"),
+            TokenType::FloatLit(_) => write!(f, "FloatLit"),
+            TokenType::VarIdent(_) => write!(f, "VarIdent"),
+            TokenType::Null => write!(f, "Null"),
+            _ => write!(f, "Unknown Token"),
         }
     }
 }
@@ -341,7 +364,7 @@ impl Lexer {
                 }
             }
         }
-        println!("Tokens: {:#?}", self.tokens);
+        // println!("Tokens: {:#?}", self.tokens);
         Ok(())
     }
 

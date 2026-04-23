@@ -6,58 +6,132 @@ use std::{error::Error, rc::Rc};
 
 pub struct Sema;
 impl Sema {
-    fn visit_expr(expr: &ast::Expr, diag: &mut DiagHandler) {
-        if expr.lhs.is_none() && expr.rhs.is_none() {
-            match expr.atom {
-                ast::AtomKind::Ident(_) => {
-                    let extracted_type = ast::Type::default();
-                    expr.ty.set(Some(extracted_type));
-                }
-                ast::AtomKind::IntLit(_) => expr.ty.set(Some(ast::Type::Int)),
-                _ => unreachable!(),
+    fn resolve_integer_resolution(
+        val: i128,
+        diag: &mut DiagHandler,
+        loc: crate::lexer::LocData,
+    ) -> Option<ast::Type> {
+        if i32::try_from(val).is_ok() {
+            Some(ast::Type::I32)
+        } else if i64::try_from(val).is_ok() {
+            Some(ast::Type::I64)
+        } else {
+            println!("Type did not resolve");
+            diag.push_err(
+                loc,
+                &format!(
+                    "integer literal `{}` exceeds the range of default type i64",
+                    val
+                ),
+            );
+            if u64::try_from(val).is_ok() {
+                diag.push_note(
+                    loc,
+                    "consider annotating the type at declaration `let digit: u64 = ...`",
+                );
+            } else {
+                diag.push_warn(loc,
+                    &format!("use of excessively large integer literal `{}`; consider using a smaller value", val));
             }
+            None
         }
+    }
+
+    fn visit_expr(expr: &ast::Expr, diag: &mut DiagHandler) {
         if let Some(lhs) = &expr.lhs {
             Sema::visit_expr(lhs, diag);
         }
-        // let rhs = &expr.rhs;
         if let Some(rhs) = &expr.rhs {
             Sema::visit_expr(rhs, diag);
         }
+        match expr.atom {
+            //TODO: Resolve type from ident symbol
+            ast::AtomKind::Ident(sym) => {
+                let extracted_type = ast::Type::default();
+                expr.ty.set(Some(extracted_type));
+            }
+            ast::AtomKind::IntLit(lit) => {
+                expr.ty
+                    .set(Sema::resolve_integer_resolution(lit.val, diag, lit.loc));
+            }
+            ast::AtomKind::None => {
+                expr.ty
+                    .set(if let (Some(lhs), Some(rhs)) = (&expr.lhs, &expr.rhs) {
+                        let lty = lhs.ty.get().unwrap();
+                        let rty = rhs.ty.get().unwrap();
+                        let mut type_to_return = lty; // default to lhs type
+
+                        /* Check if we can coerce both values
+                         * if they're not the same type
+                         */
+                        if lty != rty
+                            && !lty.is_digit_convertible_to(&rty)
+                            && !rty.is_digit_convertible_to(&lty)
+                        {
+                            type_to_return = ast::Type::default();
+                            diag.push_err(
+                                lhs.loc,
+                                &format!(
+                                    "incompatible types found in expression `{}` & `{}`",
+                                    lty, rty
+                                ),
+                            );
+                        }
+                        Some(type_to_return)
+                    } else if let Some(lhs) = &expr.lhs {
+                        lhs.ty.get()
+                    } else if let Some(rhs) = &expr.rhs {
+                        rhs.ty.get()
+                    } else {
+                        None
+                    });
+            }
+        }
     }
+
     fn visit_decl(decl: &ast::VarDecl, diag: &mut DiagHandler) {
         Sema::visit_expr(decl.value.as_ref(), diag);
-        if matches!(decl.value.ty.get().unwrap(), ast::Type::None) {
-            diag.push_err(
-                decl.loc,
-                &format!(
-                    "could not resolve type",
-                    // prog.sym.get(decl.id.name).unwrap()
-                ),
-            );
+        if decl.value.ty.get().is_none() {
+            diag.push_err(decl.loc, "could not resolve type for variable declaration");
+        } else {
+            // Set declaration type to inner expression type
+            decl.ty.set(decl.value.ty.get());
+        }
+        if let (Some(declared_type), Some(inferred_type)) = (decl.decl_type, decl.ty.get())
+            && declared_type != inferred_type
+        {
+            if inferred_type.is_digit_convertible_to(&declared_type) {
+                diag.push_err(
+                    decl.id.loc,
+                    &format!("expected {} and got {}", inferred_type, declared_type),
+                );
+                diag.push_note(
+                    decl.id.loc,
+                    &format!(
+                        "consider changing `{}` to `{}`",
+                        declared_type, inferred_type
+                    ),
+                );
+            } else {
+                decl.value.ty.set(Some(declared_type));
+            }
         }
         decl.ty.set(decl.value.ty.get());
-        if let (Some(anno_ty), Some(infer_ty)) = (decl.decl_type, decl.ty.get())
-            && anno_ty != infer_ty
-        {
-            diag.push_err(
-                decl.id.loc,
-                &format!("expected {} and got {}", infer_ty, anno_ty),
-                //TODO: Type conversion
-            );
-            diag.push_note(
-                decl.id.loc,
-                &format!("consider changing `{}` to `{}`", anno_ty, infer_ty),
-            );
+    }
+
+    fn visit_stmt_exit(enode: &ast::StmtExit, diag: &mut DiagHandler) {
+        if let Some(exit_code) = enode.exit_code.as_ref() {
+            Sema::visit_expr(exit_code, diag);
         }
     }
+
     pub fn validate_program(
         prog: &mut ast::Program,
         diag: &mut DiagHandler,
     ) -> Result<(), Box<dyn Error>> {
-        dbg!("AST: {:#?}", &prog);
-        print!("Diagnostics at validate_program()");
-        diag.display_diagnostics();
+        // dbg!("AST: {:#?}", &prog);
+        // print!("Diagnostics at validate_program()");
+        // diag.display_diagnostics();
 
         for stmt in &prog.stmts {
             match stmt.clone() {
@@ -68,7 +142,10 @@ impl Sema {
                 UnionNode::Expr(mut expr) => {
                     Sema::visit_expr(expr.as_mut(), diag);
                 }
-                _ => todo!(),
+                UnionNode::StmtExit(enode) => {
+                    Sema::visit_stmt_exit(&enode, diag);
+                }
+                _ => todo!("Semantic analysis for this nodetype is not implemented"),
             }
         }
         Ok(())
