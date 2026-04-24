@@ -68,7 +68,9 @@ Source → Lexer → Parser → AST → Type-Checking / Semantic Analysis → Ty
 | Unary | `-` | negation |
 | Operate-Assign | `+=` `-=` `*=` `/=` `%=` `**=` `&=` `\|=` `<<=` `>>=` | Combine operation and assignment |
 
->[!NOTE] Below this is stale from the original C++ codebase - will update as things move
+
+>[!WARNING] The below is stale from the original C++ codebase - will update as things move
+
 ### Other Features
 
 - Parenthesized expressions with correct grouping: `(a + b) * (c - d)`
