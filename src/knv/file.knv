@@ -1,2 +1,2 @@
-let some: i8 = 34 + 35;
+let some = 34 + 35;
 exit some;

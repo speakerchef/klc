@@ -47,7 +47,7 @@ pub enum Type {
 }
 
 impl Type {
-    fn numeric_type_info(
+    pub fn numeric_type_info(
         &self,
     ) -> Option<(
         u8,   /* nbits */
@@ -216,7 +216,7 @@ pub struct Call {
 
 #[derive(Debug, Clone)]
 pub struct StmtExit {
-    pub exit_code: Option<Expr>,
+    pub exit_code: Box<Expr>,
     pub loc: LocData,
 }
 

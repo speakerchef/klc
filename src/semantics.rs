@@ -3,11 +3,12 @@ use crate::{
     diagnostics::DiagHandler,
     lexer::{self, SymbolTable},
 };
+use core::panic;
 use std::{collections::HashMap, error::Error, rc::Rc};
 
 pub struct Sema;
 impl Sema {
-    fn resolve_integer_resolution(
+    fn default_integer_resolution(
         val: i128,
         diag: &mut DiagHandler,
         loc: crate::lexer::LocData,
@@ -36,6 +37,52 @@ impl Sema {
             }
             None
         }
+    }
+    fn resolve_integer_resolution(
+        val: i128,
+        diag: &mut DiagHandler,
+        loc: crate::lexer::LocData,
+    ) -> Option<ast::Type> {
+        match val {
+            _ if i8::try_from(val).is_ok() => Some(ast::Type::I8),
+            _ if i16::try_from(val).is_ok() => Some(ast::Type::I16),
+            _ if i32::try_from(val).is_ok() => Some(ast::Type::I32),
+            _ if i64::try_from(val).is_ok() => Some(ast::Type::I64),
+            _ if u8::try_from(val).is_ok() => Some(ast::Type::U8),
+            _ if u16::try_from(val).is_ok() => Some(ast::Type::U16),
+            _ if u32::try_from(val).is_ok() => Some(ast::Type::U32),
+            _ if u64::try_from(val).is_ok() => Some(ast::Type::U64),
+            _ => {
+                println!("Type did not resolve");
+                diag.push_err(
+                    loc,
+                    &format!(
+                        "integer literal `{}` exceeds the range of default type i64",
+                        val
+                    ),
+                );
+                if u64::try_from(val).is_ok() {
+                    diag.push_note(
+                        loc,
+                        "consider annotating the type at declaration `let digit: u64 = ...`",
+                    );
+                } else {
+                    diag.push_warn(loc,
+                    &format!("use of excessively large integer literal `{}`; consider using a smaller value", val));
+                }
+                None
+            }
+        }
+    }
+
+    fn set_all_types_expr(expr: &ast::Expr, ty: ast::Type) {
+        if let Some(lhs) = &expr.lhs {
+            Sema::set_all_types_expr(lhs, ty);
+        }
+        if let Some(rhs) = &expr.rhs {
+            Sema::set_all_types_expr(rhs, ty);
+        }
+        expr.ty.set(Some(ty));
     }
 
     fn visit_expr(
@@ -105,7 +152,6 @@ impl Sema {
             }
         }
     }
-
     fn visit_decl(
         decl: &ast::VarDecl,
         diag: &mut DiagHandler,
@@ -137,8 +183,18 @@ impl Sema {
                     ),
                 );
             }
+        } else if let Some(inferred_type) = decl.ty.get()
+            && decl.decl_type.is_none()
+        {
+            if inferred_type.is_digit_convertible_to(&ast::Type::I32) {
+                decl.ty.set(Some(ast::Type::I32));
+            } else if inferred_type.is_digit_convertible_to(&ast::Type::I64) {
+                decl.ty.set(Some(ast::Type::I64));
+            } else {
+                panic!("Could not set default type");
+            }
         }
-        decl.ty.set(decl.value.ty.get());
+        Sema::set_all_types_expr(decl.value.as_ref(), decl.ty.get().unwrap());
         vars.insert(decl.id.name, decl.ty.get().unwrap());
     }
 
@@ -148,9 +204,7 @@ impl Sema {
         sym: &mut SymbolTable,
         vars: &mut HashMap<lexer::Symbol, ast::Type>,
     ) {
-        if let Some(exit_code) = enode.exit_code.as_ref() {
-            Sema::visit_expr(exit_code, diag, sym, vars);
-        }
+        Sema::visit_expr(&enode.exit_code, diag, sym, vars);
     }
 
     pub fn validate_program(

@@ -40,7 +40,7 @@ impl Compiler {
         println!("Post Sema Diagnostics:");
         diagnostics.display_diagnostics();
         program.sym = symbol_table;
-        // println!("FINAL STATEMENTS: {:#?}", program.stmts);
+        println!("FINAL STATEMENTS: {:#?}", program.stmts);
 
         // KLIR Generation
         let mut generator = IrGenerator::new(&mut program, &mut diagnostics);

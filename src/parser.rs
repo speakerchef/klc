@@ -294,7 +294,11 @@ impl Parser<'_> {
         let loc = self.lex.peek_behind().unwrap().loc;
         self.check_semi(loc);
         ast::StmtExit {
-            exit_code: expr,
+            exit_code: Box::new(expr.unwrap_or_else(|| {
+                self.diagnostics
+                    .push_err(loc, "could not parse expression after `exit`");
+                ast::Expr::default()
+            })),
             loc,
         }
     }

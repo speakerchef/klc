@@ -159,16 +159,10 @@ impl IrGenerator<'_> {
         // );
     }
     fn visit_stmt_exit(&mut self, enode: &ast::StmtExit) {
-        let (atom, temp) = self.visit_expr(
-            enode
-                .exit_code
-                .as_ref()
-                .expect("Error: Could not get exit_code!"),
-        );
+        let (atom, temp) = self.visit_expr(enode.exit_code.as_ref());
         let ty = enode
             .exit_code
             .as_ref()
-            .unwrap()
             .ty
             .get()
             .expect("Could not get type for exit_code");
