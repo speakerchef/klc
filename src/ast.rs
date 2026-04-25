@@ -44,6 +44,8 @@ pub enum Type {
     Byte,  // u8
 
     String, // [u8]
+
+    Void,
 }
 
 impl Type {
@@ -137,7 +139,8 @@ impl Display for Type {
             Type::Char => write!(f, "char"),
             Type::String => write!(f, "string"),
             Type::Bool => write!(f, "bool"),
-            Type::None => write!(f, "None"),
+            Type::None => write!(f, "none"),
+            Type::Void => write!(f, "void"),
         }
     }
 }
@@ -165,7 +168,7 @@ pub enum AtomKind {
 impl Display for AtomKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AtomKind::Ident(id) => write!(f, "%{}", id.name),
+            AtomKind::Ident(id) => write!(f, "{}", id.name),
             AtomKind::IntLit(value) => write!(f, "{}", value.val),
             AtomKind::None => write!(f, "None"),
         }
