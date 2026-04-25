@@ -1,6 +1,8 @@
 use std::error::Error;
 use std::fs;
+use std::process::Command;
 
+use crate::backend::CodeGenerator;
 use crate::diagnostics::DiagHandler;
 use crate::irgenerator::IrGenerator;
 use crate::lexer::Lexer;
@@ -36,15 +38,53 @@ impl Compiler {
         let mut symbol_table = std::mem::take(&mut program.sym);
 
         // Semantic analysis and type inference + checks
+        println!("Semantic Analysis & Type Checking...");
         Sema::validate_program(&mut program, &mut diagnostics, &mut symbol_table)?;
-        println!("Post Sema Diagnostics:");
-        diagnostics.display_diagnostics();
-        program.sym = symbol_table;
-        println!("FINAL STATEMENTS: {:#?}", program.stmts);
+        println!("AST: \n{:#?}", program.stmts);
+        if diagnostics.has_errors() {
+            diagnostics.display_diagnostics();
+        }
 
         // KLIR Generation
-        let mut generator = IrGenerator::new(&mut program, &mut diagnostics);
-        generator.emit_klir()?;
+        let mut irgenerator = IrGenerator::new(&mut program, &mut diagnostics);
+        irgenerator.emit_klir()?;
+
+        // Assembly CodeGen
+        let mut backend = CodeGenerator::new(irgenerator.ir);
+        backend.generate()?;
+
+        std::fs::write("/tmp/knobc_asm_out.s", &backend.asm).expect("Error during compilation!");
+        std::fs::write(format!("./{}.s", opts.dst_name), &backend.asm)
+            .expect("Error during compilation!");
+        let _assembler_out = Command::new("clang")
+            .args(vec![
+                "-c",
+                "-g",
+                "-Wno-missing-sysroot",
+                "-o",
+                "/tmp/knobc_asm_out.o",
+                "/tmp/knobc_asm_out.s",
+            ])
+            .output()?;
+
+        let sdk_path_shower = Command::new("xcrun")
+            .args(vec!["--sdk", "macosx", "--show-sdk-path"])
+            .output()?;
+
+        let _linker_out = Command::new("ld")
+            .args(vec![
+                "-lSystem",
+                "-syslibroot",
+                str::from_utf8(&sdk_path_shower.stdout)?.trim(),
+                "-o",
+                &format!("./{}", opts.dst_name),
+                "/tmp/knobc_asm_out.o",
+            ])
+            .output()?;
+
+        let _ = Command::new("rm")
+            .args(vec!["/tmp/knobc_asm_out.s", "/tmp/knobc_asm_out.o"])
+            .output()?;
 
         println!("Compilation Complete");
         Ok(())

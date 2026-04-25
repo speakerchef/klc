@@ -41,7 +41,6 @@ pub enum Type {
     Usize, // u32 on 32bit, u64 on 64bit
     Bool,  // u8
     Char,  // u8
-    Byte,  // u8
 
     String, // [u8]
 
@@ -112,7 +111,6 @@ impl From<TokenType> for Type {
             TokenType::Tf32 => Type::F32,
             TokenType::Tf64 => Type::F64,
             TokenType::Tusize => Type::Usize,
-            TokenType::Tbyte => Type::Byte,
             TokenType::Tchar => Type::Char,
             TokenType::Tstring => Type::String,
             TokenType::Tbool => Type::Bool,
@@ -135,7 +133,6 @@ impl Display for Type {
             Type::F32 => write!(f, "f32"),
             Type::F64 => write!(f, "f64"),
             Type::Usize => write!(f, "usize"),
-            Type::Byte => write!(f, "byte"),
             Type::Char => write!(f, "char"),
             Type::String => write!(f, "string"),
             Type::Bool => write!(f, "bool"),

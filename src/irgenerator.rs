@@ -4,7 +4,7 @@ use std::{error::Error, fmt::Display, rc::Rc};
 use crate::{
     ast::{self, UnionNode},
     diagnostics::DiagHandler,
-    lexer::Op,
+    lexer,
 };
 
 #[derive(Default, Debug)]
@@ -27,9 +27,9 @@ impl From<&str> for Target {
 
 #[derive(Default, Debug)]
 pub struct KlirBlob {
-    text: String,
-    nodes: Vec<KlirNode>,
-    target: Target,
+    pub text: String,
+    pub nodes: Vec<KlirNode>,
+    pub target: Target,
 }
 
 impl Dump for KlirBlob {
@@ -39,7 +39,7 @@ impl Dump for KlirBlob {
                 KlirNode::Alloca(alloca) => alloca.dump(),
                 KlirNode::Store(store) => store.dump(),
                 KlirNode::Call(call) => call.dump(),
-                KlirNode::Add(add) => add.dump(),
+                KlirNode::Expr(op) => op.dump(),
             }
         }
     }
@@ -48,7 +48,7 @@ impl Dump for KlirBlob {
 pub struct IrGenerator<'a> {
     prog: &'a mut ast::Program,
     _diag: &'a mut DiagHandler,
-    ir: KlirBlob,
+    pub ir: KlirBlob,
     reg_counter: usize,
 }
 
@@ -122,18 +122,40 @@ impl Dump for Store {
 }
 
 #[derive(Debug)]
-pub struct Add {
+pub struct Expr {
     pub ty: ast::Type,
     pub lhs: ArgType,
     pub rhs: ArgType,
-    dest: String,
+    pub op: lexer::Op,
+    pub dest: String,
 }
 
-impl Dump for Add {
+impl Dump for Expr {
     fn dump(&self) {
+        let strop = match self.op {
+            lexer::Op::Add => "add",
+            lexer::Op::Sub => "sub",
+            lexer::Op::Mul => "mul",
+            lexer::Op::Div => "div",
+            lexer::Op::Mod => "mod",
+            lexer::Op::Pwr => "pwr",
+            lexer::Op::BwAnd => "and",
+            lexer::Op::BwOr => "or",
+            lexer::Op::BwXor => "xor",
+            lexer::Op::BwNot => "not",
+            lexer::Op::Lt => "lt",
+            lexer::Op::Gt => "gt",
+            lexer::Op::Lte => "lte",
+            lexer::Op::Gte => "gte",
+            lexer::Op::Eq => "eq",
+            lexer::Op::Neq => "neq",
+            lexer::Op::Lsl => "lsl",
+            lexer::Op::Lsr => "lsr",
+            _ => panic!("unimplemented op"),
+        };
         println!(
-            "    add {}, {}, {}, {}",
-            self.ty, self.lhs, self.rhs, self.dest
+            "    {} {}, {}, {}, {}",
+            strop, self.ty, self.lhs, self.rhs, self.dest
         )
     }
 }
@@ -143,7 +165,7 @@ pub enum KlirNode {
     Alloca(Alloca),
     Store(Store),
     Call(Call),
-    Add(Add),
+    Expr(Expr),
 }
 
 impl IrGenerator<'_> {
@@ -163,106 +185,66 @@ impl IrGenerator<'_> {
         if let (Some(lhs), Some(rhs)) = (&expr.lhs, &expr.rhs) {
             let lvalue = self.visit_expr(lhs);
             let rvalue = self.visit_expr(rhs);
+            let dest = format!("t{}", self.reg_counter);
 
-            match expr.op {
-                Op::Add => {
-                    let dest = format!("t{}", self.reg_counter);
+            // Node Data
+            self.ir.nodes.push(KlirNode::Alloca(Alloca {
+                ty: expr
+                    .ty
+                    .get()
+                    .expect("Could not resolve type at dest register allocation"),
+                dest: dest.clone(),
+            }));
+            self.reg_counter += 1;
 
-                    // Text Data
-                    self.ir.text.push_str(&format!(
-                        "    alloca {}, {}\n",
-                        expr.ty
-                            .get()
-                            .expect("Could not resolve type at dest register allocation"),
-                        dest
-                    ));
-                    // Node Data
-                    self.ir.nodes.push(KlirNode::Alloca(Alloca {
-                        ty: expr
-                            .ty
-                            .get()
-                            .expect("Could not resolve type at dest register allocation"),
-                        dest: dest.clone(),
-                    }));
-                    self.reg_counter += 1;
+            let mut lhs: ArgType;
+            let mut rhs: ArgType;
 
-                    let mut lhs: ArgType;
-                    let mut rhs: ArgType;
+            match lvalue.0 {
+                ast::AtomKind::Ident(id) => lhs = ArgType::Sym(format!("{}", id.name)),
+                ast::AtomKind::IntLit(value) => lhs = ArgType::Imm(value.val),
+                _ => panic!("AOOEY"),
+            }
+            match rvalue.0 {
+                ast::AtomKind::Ident(id) => rhs = ArgType::Sym(format!("{}", id.name)),
+                ast::AtomKind::IntLit(value) => rhs = ArgType::Imm(value.val),
+                _ => panic!("AOOEY but for rhs"),
+            }
 
-                    match lvalue.0 {
-                        ast::AtomKind::Ident(id) => lhs = ArgType::Sym(format!("{}", id.name)),
-                        ast::AtomKind::IntLit(value) => lhs = ArgType::Imm(value.val),
-                        _ => panic!("AOOEY"),
-                    }
-                    match rvalue.0 {
-                        ast::AtomKind::Ident(id) => rhs = ArgType::Sym(format!("{}", id.name)),
-                        ast::AtomKind::IntLit(value) => rhs = ArgType::Imm(value.val),
-                        _ => panic!("AOOEY but for rhs"),
-                    }
+            if let Some(temp_idx) = lvalue.1 {
+                self.ir.nodes.push(KlirNode::Alloca(Alloca {
+                    ty: expr
+                        .ty
+                        .get()
+                        .expect("Could not resolve type at temp register allocation"),
+                    dest: temp_idx.clone(),
+                }));
+                lhs = ArgType::Temp(temp_idx);
+            }
 
-                    if let Some(temp_idx) = lvalue.1 {
-                        self.ir.text.push_str(&format!(
-                            "    alloca {}, {}\n",
-                            expr.ty
-                                .get()
-                                .expect("Could not resolve type at temp register allocation"),
-                            temp_idx
-                        ));
+            if let Some(temp_idx) = rvalue.1 {
+                self.ir.nodes.push(KlirNode::Alloca(Alloca {
+                    ty: expr
+                        .ty
+                        .get()
+                        .expect("Could not resolve type at temp register allocation"),
+                    dest: temp_idx.clone(),
+                }));
+                rhs = ArgType::Temp(temp_idx);
+            }
 
-                        self.ir.nodes.push(KlirNode::Alloca(Alloca {
-                            ty: expr
-                                .ty
-                                .get()
-                                .expect("Could not resolve type at temp register allocation"),
-                            dest: temp_idx.clone(),
-                        }));
-                        lhs = ArgType::Temp(temp_idx);
-                    }
-
-                    if let Some(temp_idx) = rvalue.1 {
-                        self.ir.text.push_str(&format!(
-                            "    alloca {}, {}\n",
-                            expr.ty
-                                .get()
-                                .expect("Could not resolve type at temp register allocation"),
-                            temp_idx.clone()
-                        ));
-
-                        self.ir.nodes.push(KlirNode::Alloca(Alloca {
-                            ty: expr
-                                .ty
-                                .get()
-                                .expect("Could not resolve type at temp register allocation"),
-                            dest: temp_idx.clone(),
-                        }));
-                        rhs = ArgType::Temp(temp_idx);
-                    }
-
-                    self.ir.text.push_str(&format!(
-                        "    add {}, {}, {}, {}\n",
-                        expr.ty.get().expect("Couldnt get type. aooey"),
-                        lhs,
-                        rhs,
-                        dest.clone()
-                    ));
-
-                    // opnode
-                    self.ir.nodes.push(KlirNode::Add(Add {
-                        ty: expr
-                            .ty
-                            .get()
-                            .expect("Could not resolve type at temp register allocation"),
-                        lhs,
-                        rhs,
-                        dest: dest.clone(),
-                    }));
-                    return (expr.atom.clone(), Some(dest));
-                }
-                Op::Nop => {
-                    return (expr.atom.clone(), None);
-                }
-                _ => todo!("Not implemented yet"),
-            };
+            // opnode
+            self.ir.nodes.push(KlirNode::Expr(Expr {
+                ty: expr
+                    .ty
+                    .get()
+                    .expect("Could not resolve type at temp register allocation"),
+                lhs,
+                rhs,
+                op: expr.op,
+                dest: dest.clone(),
+            }));
+            return (expr.atom.clone(), Some(dest));
         }
 
         if !matches!(expr.atom, ast::AtomKind::None) {
@@ -272,18 +254,6 @@ impl IrGenerator<'_> {
     }
     fn visit_decl(&mut self, decl: &ast::VarDecl) {
         let (atom, temp) = self.visit_expr(decl.value.as_ref());
-        self.ir.text.push_str(&format!(
-            "    store {}, {}, %{}\n",
-            decl.ty
-                .get()
-                .expect("Could not resolve type at variable decl IR"),
-            if let Some(ref temp) = temp {
-                temp.clone()
-            } else {
-                format!("{}", atom)
-            },
-            decl.id.name
-        ));
         self.ir.nodes.push(KlirNode::Store(Store {
             ty: decl.ty.get().expect(""),
             src: if let Some(ref temp) = temp {
@@ -303,15 +273,6 @@ impl IrGenerator<'_> {
             .get()
             .expect("Could not get type for exit_code");
 
-        self.ir.text.push_str(&format!(
-            "    call void exit({} {})",
-            ty,
-            if let Some(ref temp) = temp {
-                temp.clone()
-            } else {
-                format!("{}", atom)
-            }
-        ));
         self.ir.nodes.push(KlirNode::Call(Call {
             return_ty: ast::Type::Void,
             methodname: String::from("_exit"),

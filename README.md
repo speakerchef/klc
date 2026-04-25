@@ -1,8 +1,8 @@
-# Knob-C: Knob-Compiler
+# KLC/knobc: Knob-Lang-Compiler
 >(This is a Rust Re-write of the original; [Original C++ Version](https://github.com/speakerchef/klc-compiler))
 >Re-write also includes and will include a great deal of architectural changes both internally and language-definition wise.
 
-KnobC is a compiler for the **KNOB** (**K**ompiled **NOB**) language built from scratch —
+KLC is a compiler for the **KNOB** (**K**ompiled **NOB**) language —
 `Knob` is a statically typed, AOT-compiled language I'm creating that emits a custom defined IR (Intermediate Representation), emitting assembly for a few backends: Namely AArch64 & x86_64(eventually):
 > [!NOTE] The original C++ version of the compiler emitted raw AArch64 assembly. The new re-write with an MIR level will allow for optimization passes, multiple backends, and other cool stuff!
 
@@ -37,7 +37,7 @@ Source → Lexer → Parser → AST → Type-Checking / Semantic Analysis → Ty
 | Class | Variants |
 |---------|-------------|
 | `Integers`   | `u8/i8`, `u16/i16`, `u32/i32`, `u64/i64`, `usize` (semantic alias to `u64/u32`)|
-| `Characters`   | `char` & `byte` (both aliased to `u8`)|
+| `Characters`   | `char` (aliased to `u8`)|
 | `Floating Point`  | `f32`, `f64`|
 | `Strings`    | `string` - likely aliased to a `u8` array of valid UTF-8 (hello rust XD)|
 | `Boolean`  | `bool` w/ opts `true` & `false`|

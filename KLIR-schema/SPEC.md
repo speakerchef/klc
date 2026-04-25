@@ -15,7 +15,7 @@
 |`i1` | STRB/LDRB | xN |
 |`i8` | STRB/LDRSB | xN |
 |`i16` | STRH/LDRSH | xN |
-|`i32` | STR/LDR | xN |
+|`i32` | STR/LDRSW | xN |
 |`i64` | STR/LDR | xN |
 |`u8` | STRB/LDRB | xN |
 |`u16` | STRH/LDRH | xN |
