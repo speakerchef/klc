@@ -1,3 +1,4 @@
+use core::panic;
 use std::{cell::Cell, error::Error, rc::Rc};
 
 use crate::{
@@ -302,21 +303,95 @@ impl Parser<'_> {
         }
     }
 
-    fn parse_stmt(&mut self, outer_scp: &mut ast::Scope) -> Result<(), Box<dyn Error>> {
+    fn parse_stmt_if(&mut self, outer_scp: &mut ast::Scope) -> ast::StmtIf {
+        let mut stmt_if = ast::StmtIf {
+            cond: self.parse_expr(0.).unwrap_or_else(|| {
+                self.diag.push_err(
+                    self.lex.peek_behind().unwrap().loc,
+                    "invalid condition for `if`",
+                );
+                ast::Expr::default()
+            }),
+            ..ast::StmtIf::default()
+        };
+
+        self.lex.next(); // eat '{'
+        self.parse_scope(&mut stmt_if.scope, false)
+            .unwrap_or_else(|_| {
+                self.diag
+                    .push_err(stmt_if.cond.loc, "invalid body after `if`");
+                panic!("BOO");
+            });
+
+        println!("Token before elif: {:?}", self.lex.peek().unwrap());
+        while let Some(&maybe_elif) = self.lex.peek()
+            && matches!(maybe_elif.kind, TokenType::KwElif)
+        {
+            self.lex.next(); // eat 'elif'
+            let mut _elif = ast::StmtElif {
+                cond: self.parse_expr(0.).unwrap_or_else(|| {
+                    self.diag
+                        .push_err(maybe_elif.loc, "invalid condition for `elif`");
+                    ast::Expr::default()
+                }),
+                loc: maybe_elif.loc,
+                ..Default::default()
+            };
+
+            self.lex.next(); // eat '{'
+            self.parse_scope(&mut _elif.scope, false)
+                .unwrap_or_else(|_| {
+                    self.diag
+                        .push_err(stmt_if.cond.loc, "invalid body after `elif`")
+                }); // process body
+            stmt_if._elif.push(Some(_elif));
+        }
+
+        println!("Token before else: {:?}", self.lex.peek().unwrap());
+        if let Some(&maybe_else) = self.lex.peek()
+            && matches!(maybe_else.kind, TokenType::KwElse)
+        {
+            println!("Inside else block");
+            self.lex.next(); // eat '{'
+            let mut _else = ast::StmtElse {
+                loc: maybe_else.loc,
+                ..Default::default()
+            };
+            self.parse_scope(&mut _else.scope, false)
+                .unwrap_or_else(|_| {
+                    self.diag
+                        .push_err(stmt_if.cond.loc, "invalid body after `if`")
+                });
+            stmt_if._else = Some(_else);
+        }
+        stmt_if
+    }
+
+    fn parse_scope(
+        &mut self,
+        outer_scp: &mut ast::Scope,
+        is_prog: bool,
+    ) -> Result<(), Box<dyn Error>> {
         let mut loc_scp = ast::Scope::default();
         outer_scp.vars.iter().for_each(|(&k, v)| {
             loc_scp.vars.insert(k, Rc::clone(v));
         });
+        let mut focused_stmts = if is_prog {
+            std::mem::take(&mut self.prog.stmts)
+        } else {
+            std::mem::take(&mut outer_scp.stmts)
+        };
 
         while let Some(&tok) = self.lex.peek() {
             if matches!(tok.kind, TokenType::Rcurly) {
+                self.lex.next(); // eat '}'
                 break; // end of scope
             }
             match tok.kind {
                 TokenType::KwExit => {
                     self.lex.next(); // eat 'exit'
                     let enode = self.parse_stmt_exit();
-                    self.prog.stmts.push(ast::UnionNode::StmtExit(enode));
+                    focused_stmts.push(ast::UnionNode::StmtExit(enode));
                 }
                 TokenType::KwLet | TokenType::KwMut => {
                     self.lex.next(); // eat 'let' | 'mut'
@@ -330,7 +405,7 @@ impl Parser<'_> {
                     let rc = Rc::new(decl);
 
                     loc_scp.vars.insert(sym, Rc::clone(&rc));
-                    self.prog.stmts.push(ast::UnionNode::VarDecl(rc));
+                    focused_stmts.push(ast::UnionNode::VarDecl(rc));
                 }
                 TokenType::VarIdent(sym) => {
                     if !loc_scp.vars.contains_key(&sym) && !loc_scp.fns.contains_key(&sym) {
@@ -344,23 +419,33 @@ impl Parser<'_> {
                     let sym = decl.id.name;
                     let rc = Rc::new(decl);
                     loc_scp.vars.insert(sym, Rc::clone(&rc));
-                    self.prog.stmts.push(ast::UnionNode::VarDecl(rc));
+                    focused_stmts.push(ast::UnionNode::VarDecl(rc));
+                }
+                TokenType::KwIf => {
+                    self.lex.next(); // eat 'if'
+                    let stmt_if = self.parse_stmt_if(&mut loc_scp);
+                    focused_stmts.push(ast::UnionNode::StmtIf(stmt_if));
                 }
                 TokenType::Semi => {
                     self.lex.next();
                     continue;
                 }
                 _ => {
-                    println!("Stmts: {:#?}", self.prog.stmts);
-                    eprintln!("Unhandled Type");
+                    // println!("Stmts: {:#?}", self.prog.stmts);
+                    eprintln!("Unhandled Type: {:?}", tok);
                     self.lex.next();
                 }
             }
         }
+        if is_prog {
+            self.prog.stmts = focused_stmts;
+        } else {
+            outer_scp.stmts = focused_stmts;
+        }
         Ok(())
     }
     pub fn create_program(&mut self) -> Result<ast::Program, Box<dyn Error>> {
-        self.parse_stmt(&mut ast::Scope::default())?;
+        self.parse_scope(&mut ast::Scope::default(), true)?;
         Ok(ast::Program {
             sym: self.lex.sym.clone(),
             stmts: self.prog.stmts.clone(),

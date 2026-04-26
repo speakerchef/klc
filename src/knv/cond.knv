@@ -1,0 +1,14 @@
+let foo = 10;
+let bar = 15;
+
+if foo == 10 {
+    exit foo;
+} elif foo == 1 {
+    exit foo + 10;
+} elif foo == 1 {
+    exit foo + 10;
+} elif foo == 1 {
+    exit foo + 10;
+} else {
+    exit bar;
+}

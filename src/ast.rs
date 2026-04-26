@@ -223,13 +223,13 @@ pub struct Call {
     pub loc: LocData,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct StmtExit {
     pub exit_code: Box<Expr>,
     pub loc: LocData,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct StmtIf {
     pub cond: Expr,
     pub scope: Scope,
@@ -238,14 +238,14 @@ pub struct StmtIf {
     pub loc: LocData,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct StmtElif {
     pub cond: Expr,
     pub scope: Scope,
     pub loc: LocData,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct StmtElse {
     pub scope: Scope,
     pub loc: LocData,

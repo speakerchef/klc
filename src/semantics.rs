@@ -213,6 +213,7 @@ impl Sema<'_> {
 
     pub fn validate_program(&mut self) -> Result<(), Box<dyn Error>> {
         let stmts = std::mem::take(&mut self.prog.stmts);
+        println!("AST: {:#?}", stmts);
         for stmt in &stmts {
             match stmt {
                 UnionNode::VarDecl(decl) => {
