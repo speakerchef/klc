@@ -13,6 +13,7 @@ pub enum Op {
     Mod,
     Lsl,
     Lsr,
+    Asr,
     BwNot, // '~'
     BwOr,
     BwAnd,
@@ -60,7 +61,7 @@ impl Display for Op {
             Op::Mod => write!(f, "%"),
             Op::Pwr => write!(f, "**"),
             Op::Lsl => write!(f, "<<"),
-            Op::Lsr => write!(f, ">>"),
+            Op::Lsr | Op::Asr => write!(f, ">>"),
             Op::BwNot => write!(f, "~"),
             Op::BwOr => write!(f, "|"),
             Op::BwAnd => write!(f, "&"),
@@ -113,7 +114,6 @@ pub enum TokenType {
     Tf64,
     Tusize,
     Tchar,
-    Tbyte,
     Tstring,
     Tbool,
     KwReturn,
@@ -465,10 +465,6 @@ impl Lexer {
             }),
             "f64" => Ok(Token {
                 kind: TokenType::Tf64,
-                loc,
-            }),
-            "byte" => Ok(Token {
-                kind: TokenType::Tbyte,
                 loc,
             }),
             "char" => Ok(Token {

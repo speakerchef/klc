@@ -56,14 +56,17 @@ impl Type {
         bool, /* fp */
     )> {
         match self {
+            Type::Bool => Some((8, false, false)),
             Type::I8 => Some((8, true, false)),
             Type::U8 => Some((8, false, false)),
+            Type::Char => Some((8, false, false)),
             Type::I16 => Some((16, true, false)),
             Type::U16 => Some((16, false, false)),
             Type::I32 => Some((32, true, false)),
             Type::U32 => Some((32, false, false)),
             Type::I64 => Some((64, true, false)),
             Type::U64 => Some((64, false, false)),
+            Type::Usize => Some((64, false, false)),
             Type::F32 => Some((24, true, true)),
             Type::F64 => Some((53, true, true)),
             _ => {
@@ -94,6 +97,12 @@ impl Type {
         } else {
             false
         }
+    }
+    pub fn is_signed(&self) -> bool {
+        matches!(
+            self,
+            Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::F32 | Self::F64
+        )
     }
 }
 

@@ -108,7 +108,6 @@ impl Parser<'_> {
                         | TokenType::Tf64
                         | TokenType::Tusize
                         | TokenType::Tchar
-                        | TokenType::Tbyte
                         | TokenType::Tstring
                         | TokenType::Tbool
                 ) {
@@ -282,7 +281,7 @@ impl Parser<'_> {
             })
             .kind
         {
-            TokenType::Semi => return,
+            TokenType::Semi => (),
             TokenType::Rparen => self.diag.push_err(loc, "extraneous closing `)`"),
             TokenType::Rcurly => self.diag.push_err(loc, "extraneous closing `}`"),
             _ => self.diag.push_err(loc, "expected `;`"),

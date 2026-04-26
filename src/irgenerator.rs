@@ -1,5 +1,5 @@
 use core::panic;
-use std::{error::Error, fmt::Display, rc::Rc};
+use std::{error::Error, fmt::Display, hint::unreachable_unchecked, rc::Rc};
 
 use crate::{
     ast::{self, UnionNode},
@@ -151,6 +151,7 @@ impl Dump for Expr {
             lexer::Op::Neq => "neq",
             lexer::Op::Lsl => "lsl",
             lexer::Op::Lsr => "lsr",
+            lexer::Op::Asr => "asr",
             _ => panic!("unimplemented op"),
         };
         println!(
@@ -241,7 +242,11 @@ impl IrGenerator<'_> {
                     .expect("Could not resolve type at temp register allocation"),
                 lhs,
                 rhs,
-                op: expr.op,
+                op: if matches!(expr.op, lexer::Op::Lsr) && expr.ty.get().unwrap().is_signed() {
+                    lexer::Op::Asr
+                } else {
+                    expr.op
+                },
                 dest: dest.clone(),
             }));
             return (expr.atom.clone(), Some(dest));
