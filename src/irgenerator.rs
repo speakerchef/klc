@@ -67,7 +67,7 @@ impl Display for ArgType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ArgType::Sym(id) => write!(f, "{}", id),
-            ArgType::Temp(temp_reg) => write!(f, "t{}", temp_reg),
+            ArgType::Temp(temp_reg) => write!(f, "{}", temp_reg),
             ArgType::Imm(val) => write!(f, "{}", val),
         }
     }
@@ -115,7 +115,7 @@ impl Dump for Call {
 #[derive(Debug)]
 pub struct Store {
     pub ty: ast::Type,
-    pub src: String,
+    pub src: ArgType,
     pub dest: String,
 }
 
@@ -255,40 +255,17 @@ impl IrGenerator<'_> {
             }));
             self.reg_counter += 1;
 
-            let mut lhs: ArgType;
-            let mut rhs: ArgType;
-
+            let lhs;
+            let rhs;
             match lvalue.0 {
                 ast::AtomKind::Ident(id) => lhs = ArgType::Sym(format!("{}", id.name)),
                 ast::AtomKind::IntLit(value) => lhs = ArgType::Imm(value.val),
-                _ => panic!("AOOEY"),
+                ast::AtomKind::None => lhs = ArgType::Temp(lvalue.1.as_ref().unwrap().clone()),
             }
             match rvalue.0 {
                 ast::AtomKind::Ident(id) => rhs = ArgType::Sym(format!("{}", id.name)),
                 ast::AtomKind::IntLit(value) => rhs = ArgType::Imm(value.val),
-                _ => panic!("AOOEY but for rhs"),
-            }
-
-            if let Some(temp_idx) = lvalue.1 {
-                self.ir.nodes.push(KlirNode::Alloca(Alloca {
-                    ty: expr
-                        .ty
-                        .get()
-                        .expect("Could not resolve type at temp register allocation"),
-                    dest: temp_idx.clone(),
-                }));
-                lhs = ArgType::Temp(temp_idx);
-            }
-
-            if let Some(temp_idx) = rvalue.1 {
-                self.ir.nodes.push(KlirNode::Alloca(Alloca {
-                    ty: expr
-                        .ty
-                        .get()
-                        .expect("Could not resolve type at temp register allocation"),
-                    dest: temp_idx.clone(),
-                }));
-                rhs = ArgType::Temp(temp_idx);
+                ast::AtomKind::None => rhs = ArgType::Temp(rvalue.1.as_ref().unwrap().clone()),
             }
 
             // opnode
@@ -316,12 +293,23 @@ impl IrGenerator<'_> {
     }
     fn visit_decl(&mut self, decl: &ast::VarDecl) {
         let (atom, temp) = self.visit_expr(decl.value.as_ref());
+        self.ir.nodes.push(KlirNode::Alloca(Alloca {
+            ty: decl
+                .ty
+                .get()
+                .expect("Could not resolve type at temp register allocation"),
+            dest: format!("{}", decl.id.name),
+        }));
         self.ir.nodes.push(KlirNode::Store(Store {
             ty: decl.ty.get().expect(""),
             src: if let Some(ref temp) = temp {
-                temp.clone()
+                ArgType::Temp(temp.clone())
             } else {
-                format!("{}", atom)
+                match atom {
+                    ast::AtomKind::Ident(id) => ArgType::Sym(format!("{}", id.name)),
+                    ast::AtomKind::IntLit(lit) => ArgType::Imm(lit.val),
+                    ast::AtomKind::None => panic!("unexpected None atomkind"),
+                }
             },
             dest: format!("{}", decl.id.name),
         }))
@@ -355,17 +343,13 @@ impl IrGenerator<'_> {
         } else {
             format!("{}", atom)
         };
-        let ty = stmt_if
-            .cond
-            .ty
-            .get()
-            .expect("Could not get type for stmt_if");
 
         let if_body_label = format!("LABEL_IF_BODY_{}", self.label_counter);
         let init_elif_body_label = format!("LABEL_ELIF_INIT_{}", self.label_counter);
         let else_body_label = format!("LABEL_ELSE_BODY_{}", self.label_counter);
         let endif_label = format!("LABEL_ENDIF_{}", self.label_counter);
         self.label_counter += 1;
+
         // Conditional branch to if body
         self.ir.nodes.push(KlirNode::Br(Br {
             label: if_body_label.clone(),
@@ -495,9 +479,7 @@ impl IrGenerator<'_> {
 
         let stmts = std::mem::take(&mut self.prog.stmts);
         self.visit_scope(&stmts);
-        // println!("IR: \n{}", self.ir.data);
         println!("IR: \n{:#?}", self.ir.nodes);
-        // println!("IR String Dump: \n");
         self.ir.dump();
         self.prog.stmts = stmts;
         Ok(())

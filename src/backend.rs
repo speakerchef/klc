@@ -58,6 +58,35 @@ impl CodeGenerator {
             _ => todo!("This type is not implemented for codegen"),
         }
     }
+    fn emit_typed_store(&mut self, ty: &ast::Type, reg_idx: usize) {
+        match ty {
+            ast::Type::I8 | ast::Type::U8 | ast::Type::Char | ast::Type::Bool => {
+                self.asm.push_str(&format!(
+                    "    strb    w{}, [sp, {}]\n",
+                    reg_idx, self.stackptr
+                ));
+            }
+            ast::Type::I16 | ast::Type::U16 => {
+                self.asm.push_str(&format!(
+                    "    strh    w{}, [sp, {}]\n",
+                    reg_idx, self.stackptr
+                ));
+            }
+            ast::Type::I32 | ast::Type::U32 => {
+                self.asm.push_str(&format!(
+                    "    str     w{}, [sp, {}]\n",
+                    reg_idx, self.stackptr
+                ));
+            }
+            ast::Type::I64 | ast::Type::U64 => {
+                self.asm.push_str(&format!(
+                    "    str     x{}, [sp, {}]\n",
+                    reg_idx, self.stackptr
+                ));
+            }
+            _ => todo!("This type is not implemented for codegen"),
+        }
+    }
     fn emit_operation(&mut self, op: &lexer::Op, ty: &ast::Type) {
         match op {
             lexer::Op::Add => self.asm.push_str("    add     x8, x9, x10\n"),
@@ -145,6 +174,22 @@ impl CodeGenerator {
             _ => todo!("This operator is not implemented for codegen"),
         }
     }
+    fn emit_typed_move(&mut self, ty: &ast::Type, val: i128) {
+        match ty {
+            ast::Type::I8
+            | ast::Type::Bool
+            | ast::Type::Char
+            | ast::Type::I16
+            | ast::Type::I32
+            | ast::Type::U8
+            | ast::Type::U16
+            | ast::Type::U32 => self.asm.push_str(&format!("    mov     w8, {}\n", val)),
+            ast::Type::I64 | ast::Type::U64 | ast::Type::Usize => {
+                self.asm.push_str(&format!("    mov     x8, {}\n", val))
+            }
+            _ => todo!("Type not impl for `mov` yet"),
+        }
+    }
     fn emit_epilogue(&mut self) {
         self.asm
             .push_str(&format!("    add     sp, sp, {}", self.stacksz));
@@ -152,30 +197,40 @@ impl CodeGenerator {
 
     pub fn generate(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.asm.push_str(".global _main\n.align 4\n_main:\n");
+
+        // Stack allocation
+        let num_nodes_to_alloc = self
+            .ir
+            .nodes
+            .iter()
+            .filter(|&node| matches!(node, KlirNode::Alloca(_)))
+            .count();
+        let alloca_sz = 16 * (num_nodes_to_alloc + 1);
+        self.asm
+            .push_str(&format!("    sub     sp, sp, {}\n", alloca_sz));
+        self.stacksz += alloca_sz;
+
         let nodes = std::mem::take(&mut self.ir.nodes);
         for node in &nodes {
             match node {
                 KlirNode::Alloca(alloca) => {
-                    if self.stackptr.is_multiple_of(16) {
-                        self.asm.push_str("    sub     sp, sp, 16\n");
-                        self.stacksz += 16;
-                    }
                     self.allocated.insert(alloca.dest.clone(), true);
                 }
-                KlirNode::Store(store) => match store.ty {
-                    ast::Type::I32 => {
-                        let reg_idx = 8;
-                        self.asm.push_str(&format!(
-                            "    str     w{}, [sp, {}]\n",
-                            reg_idx, self.stackptr
-                        ));
-                        // Store (varname, address) tuple
-                        self.vars
-                            .insert(store.dest.clone(), (store.ty, self.stackptr));
-                        self.stackptr += 8;
+                KlirNode::Store(store) => {
+                    match &store.src {
+                        ArgType::Imm(val) => {
+                            self.emit_typed_move(&store.ty, *val);
+                            self.emit_typed_store(&store.ty, 8);
+                            self.vars
+                                .insert(store.dest.clone(), (store.ty, self.stackptr));
+                        }
+                        ArgType::Sym(name) | ArgType::Temp(name) => {
+                            let &(ty, addr) = self.vars.get(name).unwrap();
+                            self.vars.insert(store.dest.clone(), (ty, addr));
+                        }
                     }
-                    _ => todo!("IR Node with Type not implemented"),
-                },
+                    self.stackptr += 8;
+                }
                 KlirNode::Expr(expr) => {
                     match &expr.lhs {
                         ArgType::Sym(name) | ArgType::Temp(name) => {
@@ -201,6 +256,10 @@ impl CodeGenerator {
                     }
 
                     self.emit_operation(&expr.op, &expr.ty);
+                    self.emit_typed_store(&expr.ty, 8);
+                    self.vars
+                        .insert(expr.dest.clone(), (expr.ty, self.stackptr));
+                    self.stackptr += 8;
                 }
                 KlirNode::Call(call) => {
                     for (argc, argv) in call.args.iter().enumerate() {
@@ -209,6 +268,16 @@ impl CodeGenerator {
                     }
                     self.asm
                         .push_str(&format!("    bl      {}\n", call.methodname));
+                }
+                KlirNode::Br(br) => {
+                    // if let Some(flag) = br.flag {
+                    //     self.vars
+                    // }
+                }
+                KlirNode::Label(label) => {
+                    // if let Some(flag) = br.flag {
+                    //     self.vars
+                    // }
                 }
                 _ => todo!("WIP"),
             }
