@@ -56,7 +56,7 @@ pub struct IrGenerator<'a> {
     label_counter: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub enum ArgType {
     Sym(String),
     Temp(String),
@@ -93,7 +93,7 @@ impl Dump for Alloca {
 pub struct Call {
     pub return_ty: ast::Type,
     pub methodname: String,
-    pub args: Vec<(ast::Type, String /* argname */)>,
+    pub args: Vec<(ast::Type, ArgType)>,
 }
 
 impl Dump for Call {
@@ -329,9 +329,13 @@ impl IrGenerator<'_> {
             args: vec![(
                 ty,
                 if let Some(ref temp) = temp {
-                    temp.clone()
+                    ArgType::Temp(temp.clone())
                 } else {
-                    format!("{}", atom)
+                    match atom {
+                        ast::AtomKind::Ident(id) => ArgType::Sym(format!("{}", id.name)),
+                        ast::AtomKind::IntLit(val) => ArgType::Imm(val.val),
+                        ast::AtomKind::None => panic!("unexpected None atomkind here"),
+                    }
                 },
             )],
         }))

@@ -174,18 +174,47 @@ impl CodeGenerator {
             _ => todo!("This operator is not implemented for codegen"),
         }
     }
-    fn emit_typed_move(&mut self, ty: &ast::Type, val: i128) {
+    fn emit_typed_move(&mut self, ty: &ast::Type, reg_idx: usize, val: i128) {
+        let low = (val & 0xFFFF) as u16;
+        let low_med = (val >> 16) as u16;
+        let high_med = (val >> 32) as u16;
+        let high = (val >> 48) as u16;
         match ty {
             ast::Type::I8
             | ast::Type::Bool
             | ast::Type::Char
             | ast::Type::I16
-            | ast::Type::I32
             | ast::Type::U8
             | ast::Type::U16
-            | ast::Type::U32 => self.asm.push_str(&format!("    mov     w8, {}\n", val)),
-            ast::Type::I64 | ast::Type::U64 | ast::Type::Usize => {
-                self.asm.push_str(&format!("    mov     x8, {}\n", val))
+            | ast::Type::U32 => {
+                self.asm
+                    .push_str(&format!("    mov     w{}, 0x{:X}\n", reg_idx, low));
+                if low_med != 0 {
+                    self.asm.push_str(&format!(
+                        "    movk    w{}, 0x{:X}, lsl 16\n",
+                        reg_idx, low_med
+                    ));
+                }
+            }
+            ast::Type::I32 | ast::Type::I64 | ast::Type::U64 | ast::Type::Usize => {
+                self.asm
+                    .push_str(&format!("    mov     w{}, 0x{:X}\n", reg_idx, low));
+                if low_med != 0 {
+                    self.asm.push_str(&format!(
+                        "    movk    w{}, 0x{:X}, lsl 16\n",
+                        reg_idx, low_med
+                    ));
+                }
+                if high_med != 0 {
+                    self.asm.push_str(&format!(
+                        "    movk    w{}, 0x{:X}, lsl 32\n",
+                        reg_idx, high_med
+                    ));
+                }
+                if high != 0 {
+                    self.asm
+                        .push_str(&format!("    movk    w{}, 0x{:X}, lsl 48\n", reg_idx, high));
+                }
             }
             _ => todo!("Type not impl for `mov` yet"),
         }
@@ -219,7 +248,7 @@ impl CodeGenerator {
                 KlirNode::Store(store) => {
                     match &store.src {
                         ArgType::Imm(val) => {
-                            self.emit_typed_move(&store.ty, *val);
+                            self.emit_typed_move(&store.ty, 8, *val);
                             self.emit_typed_store(&store.ty, 8);
                             self.vars
                                 .insert(store.dest.clone(), (store.ty, self.stackptr));
@@ -262,22 +291,33 @@ impl CodeGenerator {
                     self.stackptr += 8;
                 }
                 KlirNode::Call(call) => {
-                    for (argc, argv) in call.args.iter().enumerate() {
-                        let &(ty, addr) = self.vars.get(&argv.1).unwrap();
-                        self.emit_typed_load(&ty, argc, addr);
+                    for (argc, (ty, arg_type)) in call.args.iter().enumerate() {
+                        match arg_type {
+                            ArgType::Imm(val) => self.emit_typed_move(ty, argc, *val),
+                            ArgType::Temp(name) | ArgType::Sym(name) => {
+                                let &(var_ty, addr) = self.vars.get(name).unwrap();
+                                self.emit_typed_load(&var_ty, argc, addr);
+                            }
+                        }
                     }
                     self.asm
                         .push_str(&format!("    bl      {}\n", call.methodname));
                 }
                 KlirNode::Br(br) => {
-                    // if let Some(flag) = br.flag {
-                    //     self.vars
-                    // }
+                    if let Some(flag) = &br.flag {
+                        let &(ty, addr) = self
+                            .vars
+                            .get(flag)
+                            .unwrap_or_else(|| panic!("Could not get addr for {flag}"));
+                        self.emit_typed_load(&ty, 8, addr);
+                        self.asm
+                            .push_str(&format!("    cbnz    w8, {}\n", br.label));
+                    } else {
+                        self.asm.push_str(&format!("    b       {}\n", br.label));
+                    }
                 }
                 KlirNode::Label(label) => {
-                    // if let Some(flag) = br.flag {
-                    //     self.vars
-                    // }
+                    self.asm.push_str(&format!("{}:\n", label.name));
                 }
                 _ => todo!("WIP"),
             }
