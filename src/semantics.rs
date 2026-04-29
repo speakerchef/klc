@@ -114,7 +114,7 @@ impl Sema<'_> {
         }
         match expr.atom {
             ast::AtomKind::Ident(id) => {
-                if !outer_scp.contains_key(&id.name) {
+                if !outer_scp.contains_key(&id.name) && !self.cached_ty.contains_key(&id.name) {
                     self.diag.push_err(
                         id.loc,
                         &format!(
@@ -240,6 +240,11 @@ impl Sema<'_> {
 
     fn visit_stmt_fn(&mut self, stmt_fn: &ast::StmtFn, outer_scp: &mut SemaScope) {
         // TODO: eventually manage undefined function names
+        if let Some(args) = &stmt_fn.args {
+            for &(sym, ty) in args {
+                self.cached_ty.insert(sym, ty);
+            }
+        }
         self.visit_scope(&stmt_fn.body, outer_scp);
     }
 

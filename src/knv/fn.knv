@@ -1,7 +1,9 @@
-fn foo(i32 bar) -> void {
-    exit 69;
+fn main(exit_code: i32) -> void {
+    exit exit_code;
 }
 
-let aooey = 5;
-let babooey = 4;
-foo(aooey, babooey);
+fn foo(arg1: i32, arg2: i32) -> void {
+    exit arg1;
+}
+
+main(69);

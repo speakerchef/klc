@@ -47,7 +47,7 @@ impl Compiler {
         }
 
         // KLIR Generation
-        let mut irgenerator = IrGenerator::new(&mut program, &mut diagnostics);
+        let mut irgenerator = IrGenerator::new(&mut program, &mut diagnostics, &mut symbol_table);
         irgenerator.emit_klir()?;
 
         // Assembly CodeGen

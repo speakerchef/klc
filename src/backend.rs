@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, panic, rc::Rc};
 
 use crate::{
     ast,
@@ -11,20 +11,34 @@ struct AsmMetadata {
     align: usize,
 }
 
-struct FuncScopes {
-    name: Rc<str>,
+#[derive(Debug, Default)]
+struct FuncScope {
+    name: String,
     data: String,
     stackptr: usize,
     vars: HashMap<String, (ast::Type, usize /* register counter */)>,
+    fns_map: HashMap<
+        String,
+        (
+            ast::Type,                        /* ret type */
+            Option<Vec<(String, ast::Type)>>, /* args */
+        ),
+    >,
 }
 
 pub struct CodeGenerator {
     ir: KlirBlob,
     pub asm: String,
-    fns: Vec<Box<FuncScopes>>, // non-inlined function bodies
-
+    fns: Vec<FuncScope>, // non-inlined function bodies
     stackptr: usize,
     vars: HashMap<String, (ast::Type, usize /* register counter */)>,
+    fns_map: HashMap<
+        String,
+        (
+            ast::Type,                        /* ret type */
+            Option<Vec<(String, ast::Type)>>, /* args */
+        ),
+    >,
 }
 
 impl CodeGenerator {
@@ -33,6 +47,7 @@ impl CodeGenerator {
             ir,
             asm: String::new(),
             fns: Vec::new(),
+            fns_map: HashMap::new(),
             stackptr: 0,
             vars: HashMap::new(),
         }
@@ -314,27 +329,56 @@ impl CodeGenerator {
                     );
                 }
                 KlirNode::Define(define) => {
+                    //TODO: function arg issues with expression
+                    let mut fn_scope = FuncScope::default();
+                    fn_scope.name = define.name.clone();
+                    // TODO: Above
                     self.asm.push_str(&format!("{}:\n", define.name));
+                    let mut args_vec = Vec::new();
                     if let Some(args) = &define.args {
-                        for (argc, (ty, arg_type)) in args.iter().enumerate() {
+                        for (argc, (arg_type, ty)) in args.iter().enumerate() {
                             match arg_type {
-                                ArgType::Imm(val) => self.emit_typed_move(ty, argc, *val),
+                                ArgType::Imm(_val) => {
+                                    panic!("Cannot have imm in function def args")
+                                }
                                 ArgType::Temp(name) | ArgType::Sym(name) => {
                                     self.vars.insert(name.clone(), (*ty, 0)); // forward decl of these vars
+                                    args_vec.push((name.clone(), *ty));
                                     // let &(var_ty, addr) = self.vars.get(name).unwrap();
                                     // self.emit_typed_load(&var_ty, argc, addr);
                                 }
                             }
                         }
+                        self.fns_map.insert(
+                            define.name.clone(),
+                            (
+                                define.return_ty,
+                                if !args_vec.is_empty() {
+                                    Some(args_vec)
+                                } else {
+                                    None
+                                },
+                            ),
+                        );
                     }
-                    // self.asm.push_str(&format!("    bl      {}\n", define.name));
                 }
                 KlirNode::Call(call) => {
                     if let Some(args) = &call.args {
-                        for (argc, (ty, arg_type)) in args.iter().enumerate() {
+                        for (argc, (arg_type, ty)) in args.iter().enumerate() {
                             // TODO: Emit loads for argument variables passed in
                             match arg_type {
-                                ArgType::Imm(val) => self.emit_typed_move(ty, argc, *val),
+                                ArgType::Imm(val) => {
+                                    self.emit_typed_move(ty, argc, *val);
+                                    self.emit_typed_store(&ty, argc, None);
+
+                                    // TODO: Lookup argnames from func decl and update address with these values;
+                                    if let Some(fn_def) = self.fns_map.get(&call.name) {
+                                        let argname = &fn_def.1.as_ref().unwrap()[argc].0;
+                                        let arg_ty = &fn_def.1.as_ref().unwrap()[argc].1;
+                                        self.vars.insert(argname.clone(), (*arg_ty, self.stackptr));
+                                        self.stackptr += 8;
+                                    }
+                                }
                                 ArgType::Temp(name) | ArgType::Sym(name) => {
                                     let &(var_ty, addr) = self.vars.get(name).unwrap();
                                     self.emit_typed_load(&var_ty, argc, addr);

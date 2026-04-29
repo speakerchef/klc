@@ -213,7 +213,7 @@ pub struct Scope {
 #[derive(Debug, Clone, Default)]
 pub struct StmtFn {
     pub name: Symbol,
-    pub args: Option<Vec<(Type, Symbol)>>,
+    pub args: Option<Vec<(Symbol, Type)>>,
     pub body: Scope,
     pub return_ty: Type,
     pub loc: LocData,
@@ -221,8 +221,9 @@ pub struct StmtFn {
 
 #[derive(Debug, Clone, Default)]
 pub struct Call {
-    pub id: Symbol,
+    pub name: Symbol,
     pub args: Option<Vec<Expr>>,
+    pub return_ty: Type,
     pub loc: LocData,
 }
 

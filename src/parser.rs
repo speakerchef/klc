@@ -8,7 +8,7 @@ use crate::{
 };
 
 enum ArgVec {
-    FnDefArgs(Vec<(ast::Type, Symbol)>),
+    FnDefArgs(Vec<(Symbol, ast::Type)>),
     FnCallArgs(Vec<ast::Expr>),
 }
 
@@ -313,6 +313,9 @@ impl Parser<'_> {
         outer_scp.vars.iter().for_each(|(&k, v)| {
             stmt_if.scope.vars.insert(k, Rc::clone(v));
         });
+        outer_scp.fns.iter().for_each(|(&k, v)| {
+            stmt_if.scope.fns.insert(k, Rc::clone(v));
+        });
 
         self.lex.next(); // eat '{'
         self.parse_scope(&mut stmt_if.scope).unwrap_or_else(|_| {
@@ -335,7 +338,9 @@ impl Parser<'_> {
             outer_scp.vars.iter().for_each(|(&k, v)| {
                 _elif.scope.vars.insert(k, Rc::clone(v));
             });
-
+            outer_scp.fns.iter().for_each(|(&k, v)| {
+                _elif.scope.fns.insert(k, Rc::clone(v));
+            });
             self.lex.next(); // eat '{'
             self.parse_scope(&mut _elif.scope).unwrap_or_else(|_| {
                 self.diag
@@ -353,6 +358,9 @@ impl Parser<'_> {
             };
             outer_scp.vars.iter().for_each(|(&k, v)| {
                 _else.scope.vars.insert(k, Rc::clone(v));
+            });
+            outer_scp.fns.iter().for_each(|(&k, v)| {
+                _else.scope.fns.insert(k, Rc::clone(v));
             });
             self.lex.next(); // eat '{'
             self.parse_scope(&mut _else.scope).unwrap_or_else(|_| {
@@ -378,6 +386,9 @@ impl Parser<'_> {
         outer_scp.vars.iter().for_each(|(&k, v)| {
             stmt_while.scope.vars.insert(k, Rc::clone(v));
         });
+        outer_scp.fns.iter().for_each(|(&k, v)| {
+            stmt_while.scope.fns.insert(k, Rc::clone(v));
+        });
 
         self.lex.next(); // eat '{'
         self.parse_scope(&mut stmt_while.scope).unwrap_or_else(|_| {
@@ -389,6 +400,48 @@ impl Parser<'_> {
 
         stmt_while
     }
+
+    #[must_use]
+    fn parse_argument_pair(&mut self) -> Option<(Symbol, Type)> {
+        let check = self.lex.peek();
+        if let Some(tok) = check
+            && !matches!(tok.kind, TokenType::VarIdent(_))
+        {
+            return None;
+        }
+        self.lex.next(); // also argname and places cursor at `:`
+
+        if !self.validate_tok(TokenType::Colon) {
+            self.diag
+                .push_err(self.lex.peek_behind().unwrap().loc, "expected `:`");
+            return None;
+        }
+        if let (Some(&argname), Some(&ty)) = (self.lex.peek_behind(), self.lex.peek_ahead()) {
+            if ty.kind.is_type_token() && matches!(argname.kind, TokenType::VarIdent(_)) {
+                if let TokenType::VarIdent(sym) = argname.kind {
+                    self.lex.next(); // eat `:`
+                    self.lex.next(); // eat type
+                    Some((sym, Type::from(ty.kind)))
+                } else {
+                    // self.lex.next(); // eat `:`
+                    self.diag.push_err(
+                        self.lex.peek_behind().unwrap().loc,
+                        &format!("expected `VarIdent`; got `{}`", argname.kind),
+                    );
+                    None
+                }
+            } else {
+                self.diag.push_err(
+                    self.lex.peek_behind().unwrap().loc,
+                    "expected valid `Type, Identifier` pair for function arguments",
+                );
+                None
+            }
+        } else {
+            return None;
+        }
+    }
+
     fn parse_args(&mut self, is_call: bool) -> Option<ArgVec> {
         if !self.validate_tok(TokenType::Lparen) {
             self.diag
@@ -396,7 +449,7 @@ impl Parser<'_> {
         } else {
             self.lex.next(); // eat '('
         }
-        let mut def_args = Vec::<(ast::Type, Symbol)>::new();
+        let mut def_args = Vec::<(Symbol, Type)>::new();
         let mut call_args = Vec::<ast::Expr>::new();
         let def = lexer::Token::default();
         if is_call {
@@ -415,7 +468,6 @@ impl Parser<'_> {
                         .push_err(loc, "received invalid arguments to function call");
                     ast::Expr::default()
                 }));
-                println!("Token before eating arg {:#?}", self.lex.peek().unwrap());
 
                 if self.validate_tok(TokenType::Rparen) {
                     break;
@@ -429,44 +481,37 @@ impl Parser<'_> {
             }
         } else {
             loop {
-                // eat 1 ahead to look behind
-                self.lex.next();
-                if let (Some(&ty), Some(&arg)) = (self.lex.peek_behind(), self.lex.peek()) {
-                    if ty.kind.is_type_token() && matches!(arg.kind, TokenType::VarIdent(_)) {
-                        if let TokenType::VarIdent(sym) = arg.kind {
-                            def_args.push((ast::Type::from(ty.kind), sym));
-                        } else {
-                            self.diag.push_err(
-                                self.lex.peek_behind().unwrap().loc,
-                                &format!("expected `VarIdent`; got `{}`", arg.kind),
-                            );
-                        }
-                    } else {
-                        self.diag.push_err(
-                            self.lex.peek_behind().unwrap().loc,
-                            "expected valid `Type, Identifier` pair for function arguments",
-                        );
-                    }
-                } else {
-                    return None;
+                let loc = self
+                    .lex
+                    .peek()
+                    .unwrap_or_else(|| {
+                        self.diag
+                            .push_err(self.lex.peek_behind().unwrap().loc, "expected token");
+                        &def
+                    })
+                    .loc;
+                if let Some(packed_arg) = self.parse_argument_pair() {
+                    def_args.push(packed_arg);
                 }
-
-                self.lex.next(); // eat argname
+                // self.lex.next(); // eat type
                 if self.validate_tok(TokenType::Rparen) {
                     break;
                 } else if !self.validate_tok(TokenType::Comma) {
-                    // self.diag
-                    //     .push_err(loc, "expected `,` between function arguments");
+                    self.diag
+                        .push_err(loc, "expected `,` between function arguments");
+                    // break;
                 } else {
                     self.lex.next(); //eat ',' & advance to next type
                 }
             }
         }
-        Some(if is_call {
-            ArgVec::FnCallArgs(call_args)
+        if is_call && !call_args.is_empty() {
+            Some(ArgVec::FnCallArgs(call_args))
+        } else if !def_args.is_empty() {
+            Some(ArgVec::FnDefArgs(def_args))
         } else {
-            ArgVec::FnDefArgs(def_args)
-        })
+            None
+        }
     }
 
     fn parse_stmt_fn(&mut self, outer_scp: &mut ast::Scope) -> ast::StmtFn {
@@ -570,11 +615,12 @@ impl Parser<'_> {
         stmt_fn
     }
 
-    fn parse_fn_call(&mut self, name: Symbol) -> ast::Call {
+    fn parse_fn_call(&mut self, name: Symbol, outer_scp: &mut ast::Scope) -> ast::Call {
         let mut call = ast::Call::default();
-        call.id = name;
+        call.name = name;
         self.lex.next(); // eat ident
-
+        // TODO: Make this safe
+        call.return_ty = outer_scp.fns.get(&name).unwrap().return_ty; // SAFETY: NONE
         call.args = if let Some(args) = self.parse_args(true)
             && let ArgVec::FnCallArgs(call_args) = args
         {
@@ -625,7 +671,7 @@ impl Parser<'_> {
                         && matches!(tok.kind, TokenType::Lparen)
                     {
                         println!("Is call");
-                        let call = self.parse_fn_call(sym);
+                        let call = self.parse_fn_call(sym, &mut loc_scp);
                         outer_scp.stmts.push(ast::UnionNode::Call(call));
                     } else {
                         let mut decl = self.parse_var_decl(tok).unwrap();

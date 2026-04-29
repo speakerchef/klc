@@ -4,7 +4,7 @@ use std::{error::Error, fmt::Display, rc::Rc};
 use crate::{
     ast::{self, UnionNode},
     diagnostics::DiagHandler,
-    lexer::{self, Symbol},
+    lexer::{self, Symbol, SymbolTable},
 };
 
 #[derive(Default, Debug)]
@@ -51,6 +51,7 @@ impl Dump for KlirBlob {
 pub struct IrGenerator<'a> {
     prog: &'a mut ast::Program,
     _diag: &'a mut DiagHandler,
+    sym: &'a mut SymbolTable,
     pub ir: KlirBlob,
     reg_counter: usize,
     label_counter: usize,
@@ -93,7 +94,7 @@ impl Dump for Alloca {
 pub struct Define {
     pub return_ty: ast::Type,
     pub name: String,
-    pub args: Option<Vec<(ast::Type, ArgType)>>,
+    pub args: Option<Vec<(ArgType, ast::Type)>>,
 }
 
 impl Dump for Define {
@@ -118,7 +119,7 @@ impl Dump for Define {
 pub struct Call {
     pub return_ty: ast::Type,
     pub name: String,
-    pub args: Option<Vec<(ast::Type, ArgType)>>,
+    pub args: Option<Vec<(ArgType, ast::Type)>>,
 }
 
 impl Dump for Call {
@@ -237,10 +238,15 @@ pub enum KlirNode {
 }
 
 impl IrGenerator<'_> {
-    pub fn new<'a>(prog: &'a mut ast::Program, diag: &'a mut DiagHandler) -> IrGenerator<'a> {
+    pub fn new<'a>(
+        prog: &'a mut ast::Program,
+        diag: &'a mut DiagHandler,
+        sym: &'a mut SymbolTable,
+    ) -> IrGenerator<'a> {
         IrGenerator {
             prog,
             _diag: diag,
+            sym,
             ir: KlirBlob::default(),
             reg_counter: 0,
             label_counter: 0,
@@ -327,7 +333,6 @@ impl IrGenerator<'_> {
             return_ty: ast::Type::Void,
             name: String::from("_exit"),
             args: Some(vec![(
-                ty,
                 if let Some(ref temp) = temp {
                     ArgType::Temp(temp.clone())
                 } else {
@@ -337,6 +342,7 @@ impl IrGenerator<'_> {
                         ast::AtomKind::None => panic!("unexpected None atomkind here"),
                     }
                 },
+                ty,
             )]),
         }))
     }
@@ -499,13 +505,15 @@ impl IrGenerator<'_> {
     }
 
     fn visit_stmt_fn(&mut self, stmt_fn: &ast::StmtFn) {
+        let fn_sym_as_str = self.sym.get(stmt_fn.name).unwrap();
+        let fn_name_as_str = fn_sym_as_str.as_ref().to_string();
         self.ir.nodes.push(KlirNode::Define(Define {
             return_ty: stmt_fn.return_ty,
-            name: stmt_fn.name.to_string(),
+            name: fn_name_as_str,
             args: if let Some(args) = &stmt_fn.args {
                 Some(
                     args.iter()
-                        .map(|&(ty, sym)| (ty, ArgType::Sym(sym.to_string())))
+                        .map(|&(sym, ty)| (ArgType::Sym(sym.to_string()), ty))
                         .collect(),
                 )
             } else {
@@ -513,6 +521,41 @@ impl IrGenerator<'_> {
             },
         }));
         self.visit_scope(&stmt_fn.body.stmts);
+    }
+
+    fn visit_fn_call(&mut self, call: &ast::Call) {
+        let fn_sym_as_str = self.sym.get(call.name).unwrap();
+        let fn_name_as_str = fn_sym_as_str.as_ref().to_string();
+        let mut nodes = std::mem::take(&mut self.ir.nodes);
+        nodes.push(KlirNode::Call(Call {
+            return_ty: call.return_ty,
+            name: fn_name_as_str,
+            args: {
+                if let Some(call_args) = &call.args {
+                    let mut arg_list = Vec::<(ArgType, ast::Type)>::new();
+                    for expr in call_args {
+                        let (atom, temp) = self.visit_expr(expr);
+                        let argkind = if let Some(temp) = temp {
+                            ArgType::Temp(temp)
+                        } else {
+                            match atom {
+                                ast::AtomKind::Ident(id) => ArgType::Sym(id.name.to_string()),
+                                ast::AtomKind::IntLit(lit) => ArgType::Imm(lit.val),
+                                _ => panic!("Impossible for now"),
+                            }
+                        };
+                        arg_list.push((
+                            argkind,
+                            expr.ty.get().as_ref().unwrap_or(&ast::Type::None).clone(),
+                        ));
+                    }
+                    Some(arg_list)
+                } else {
+                    None
+                }
+            },
+        }));
+        self.ir.nodes = nodes;
     }
 
     fn visit_scope(&mut self, stmts: &[UnionNode]) {
@@ -535,6 +578,9 @@ impl IrGenerator<'_> {
                 }
                 UnionNode::StmtFn(stmt_fn) => {
                     self.visit_stmt_fn(Rc::clone(stmt_fn).as_ref());
+                }
+                UnionNode::Call(call) => {
+                    self.visit_fn_call(call);
                 }
                 UnionNode::Scope(scp) => {
                     self.visit_scope(&scp.stmts);
