@@ -40,6 +40,7 @@ impl Dump for KlirBlob {
                 KlirNode::Store(store) => store.dump(),
                 KlirNode::Define(define) => define.dump(),
                 KlirNode::Call(call) => call.dump(),
+                KlirNode::Ret(ret) => ret.dump(),
                 KlirNode::Expr(op) => op.dump(),
                 KlirNode::Br(br) => br.dump(),
                 KlirNode::Label(label) => label.dump(),
@@ -70,6 +71,7 @@ pub struct IrGenerator<'a> {
 pub enum ArgType {
     Sym(String),
     Temp(String),
+    Call(String),
     Imm(i128),
 }
 
@@ -78,6 +80,7 @@ impl Display for ArgType {
         match self {
             ArgType::Sym(id) => write!(f, "%{}", id),
             ArgType::Temp(temp_reg) => write!(f, "%{}", temp_reg),
+            ArgType::Call(call) => write!(f, "call %{}", call),
             ArgType::Imm(val) => write!(f, "{}", val),
         }
     }
@@ -121,6 +124,22 @@ impl Dump for Define {
         }
         print!("):");
         println!();
+    }
+}
+
+#[derive(Debug)]
+pub struct Ret {
+    pub return_ty: ast::Type,
+    pub value: Option<ArgType>,
+}
+
+impl Dump for Ret {
+    fn dump(&self) {
+        if let Some(val) = &self.value {
+            println!("    ret {}", val)
+        } else {
+            println!("    ret")
+        }
     }
 }
 
@@ -241,6 +260,7 @@ pub enum KlirNode {
     Store(Store),
     Define(Define),
     Call(Call),
+    Ret(Ret),
     Expr(Expr),
     Br(Br),
     Label(Label),
@@ -280,11 +300,17 @@ impl IrGenerator<'_> {
             match lvalue.0 {
                 ast::AtomKind::Ident(id) => lhs = ArgType::Sym(id.name.to_string()),
                 ast::AtomKind::IntLit(value) => lhs = ArgType::Imm(value.val),
+                ast::AtomKind::Call(call) => {
+                    lhs = ArgType::Call(self.sym.get(call.name).unwrap().to_string());
+                }
                 ast::AtomKind::None => lhs = ArgType::Temp(lvalue.1.as_ref().unwrap().clone()),
             }
             match rvalue.0 {
                 ast::AtomKind::Ident(id) => rhs = ArgType::Sym(id.name.to_string()),
                 ast::AtomKind::IntLit(value) => rhs = ArgType::Imm(value.val),
+                ast::AtomKind::Call(call) => {
+                    rhs = ArgType::Call(self.sym.get(call.name).unwrap().to_string());
+                }
                 ast::AtomKind::None => rhs = ArgType::Temp(rvalue.1.as_ref().unwrap().clone()),
             }
             // opnode
@@ -318,7 +344,8 @@ impl IrGenerator<'_> {
                 .expect("Could not resolve type at temp register allocation"),
             dest: format!("{}", decl.name),
         }));
-        outer_scp.ir.nodes.push(KlirNode::Store(Store {
+        let mut nodes = std::mem::take(&mut outer_scp.ir.nodes);
+        nodes.push(KlirNode::Store(Store {
             ty: decl.ty.get().expect("failed to get decl.ty at visit_decl"),
             src: if let Some(ref temp) = temp {
                 ArgType::Temp(temp.clone())
@@ -326,11 +353,16 @@ impl IrGenerator<'_> {
                 match atom {
                     ast::AtomKind::Ident(id) => ArgType::Sym(id.name.to_string()),
                     ast::AtomKind::IntLit(lit) => ArgType::Imm(lit.val),
+                    ast::AtomKind::Call(call) => {
+                        self.visit_fn_call(&call, outer_scp);
+                        ArgType::Call(self.sym.get(call.name).unwrap().to_string())
+                    }
                     ast::AtomKind::None => panic!("unexpected None atomkind"),
                 }
             },
             dest: decl.name.to_string(),
-        }))
+        }));
+        outer_scp.ir.nodes = nodes;
     }
     fn visit_stmt_exit(&mut self, enode: &ast::StmtExit, outer_scp: &mut ProgScope) {
         let (atom, temp) = self.visit_expr(enode.exit_code.as_ref(), outer_scp);
@@ -341,7 +373,8 @@ impl IrGenerator<'_> {
             .get()
             .expect("Could not get type for exit_code");
 
-        outer_scp.ir.nodes.push(KlirNode::Call(Call {
+        let mut nodes = std::mem::take(&mut outer_scp.ir.nodes);
+        nodes.push(KlirNode::Call(Call {
             return_ty: ast::Type::Void,
             name: String::from("_exit"),
             args: Some(vec![(
@@ -351,12 +384,17 @@ impl IrGenerator<'_> {
                     match atom {
                         ast::AtomKind::Ident(id) => ArgType::Sym(id.name.to_string()),
                         ast::AtomKind::IntLit(val) => ArgType::Imm(val.val),
+                        ast::AtomKind::Call(call) => {
+                            self.visit_fn_call(&call, outer_scp);
+                            ArgType::Call(self.sym.get(call.name).unwrap().to_string())
+                        }
                         ast::AtomKind::None => panic!("unexpected None atomkind here"),
                     }
                 },
                 ty,
             )]),
-        }))
+        }));
+        outer_scp.ir.nodes = nodes;
     }
     fn visit_stmt_if(&mut self, stmt_if: &ast::StmtIf, outer_scp: &mut ProgScope) {
         let (atom, temp) = self.visit_expr(&stmt_if.cond, outer_scp);
@@ -552,6 +590,10 @@ impl IrGenerator<'_> {
                             match atom {
                                 ast::AtomKind::Ident(id) => ArgType::Sym(id.name.to_string()),
                                 ast::AtomKind::IntLit(lit) => ArgType::Imm(lit.val),
+                                ast::AtomKind::Call(call) => {
+                                    self.visit_fn_call(&call, outer_scp);
+                                    ArgType::Call(self.sym.get(call.name).unwrap().to_string())
+                                }
                                 _ => panic!("Impossible for now"),
                             }
                         };
@@ -562,6 +604,31 @@ impl IrGenerator<'_> {
                 } else {
                     None
                 }
+            },
+        }));
+        outer_scp.ir.nodes = nodes;
+    }
+    fn visit_stmt_return(&mut self, ret: &ast::StmtReturn, outer_scp: &mut ProgScope) {
+        let mut nodes = std::mem::take(&mut outer_scp.ir.nodes);
+        nodes.push(KlirNode::Ret(Ret {
+            value: if let Some(value) = &ret.value {
+                let (atom, temp) = self.visit_expr(value, outer_scp);
+                if let Some(temp) = temp {
+                    Some(ArgType::Temp(temp))
+                } else {
+                    match atom {
+                        ast::AtomKind::Ident(id) => Some(ArgType::Sym(id.name.to_string())),
+                        ast::AtomKind::IntLit(lit) => Some(ArgType::Imm(lit.val)),
+                        _ => panic!("unexpected none atomkind found"),
+                    }
+                }
+            } else {
+                None
+            },
+            return_ty: if let Some(value) = &ret.value {
+                value.ty.get().unwrap() // SAFETY: Guaranteed by Sema
+            } else {
+                ast::Type::Void
             },
         }));
         outer_scp.ir.nodes = nodes;
@@ -591,6 +658,9 @@ impl IrGenerator<'_> {
                 }
                 UnionNode::Call(call) => {
                     self.visit_fn_call(call, outer_scp);
+                }
+                UnionNode::StmtReturn(ret) => {
+                    self.visit_stmt_return(ret, outer_scp);
                 }
                 UnionNode::Scope(scp) => {
                     self.visit_scope(&scp.stmts, outer_scp);

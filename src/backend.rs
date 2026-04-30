@@ -2,7 +2,7 @@ use std::{collections::HashMap, panic, rc::Rc};
 
 use crate::{
     ast,
-    irgenerator::{ArgType, Br, Call, Define, Expr, KlirNode, ProgScope, Store},
+    irgenerator::{ArgType, Br, Call, Define, Expr, KlirNode, ProgScope, Ret, Store},
     lexer,
 };
 
@@ -202,6 +202,31 @@ impl CodeGenerator {
             _ => todo!("This operator is not implemented for codegen"),
         }
     }
+    fn emit_move_with_reg(
+        &mut self,
+        ty: &ast::Type,
+        dst_reg_idx: usize,
+        src_reg_idx: usize,
+        scp: &mut AsmScope,
+    ) {
+        match ty {
+            ast::Type::I8
+            | ast::Type::Bool
+            | ast::Type::Char
+            | ast::Type::I16
+            | ast::Type::U8
+            | ast::Type::U16
+            | ast::Type::U32 => {
+                scp.data
+                    .push_str(&format!("    mov     w{}, x{}\n", dst_reg_idx, src_reg_idx));
+            }
+            ast::Type::I32 | ast::Type::I64 | ast::Type::U64 | ast::Type::Usize => {
+                scp.data
+                    .push_str(&format!("    mov     x{}, x{}\n", dst_reg_idx, src_reg_idx));
+            }
+            _ => todo!("Type not impl for `mov` yet"),
+        }
+    }
     fn emit_typed_move(&mut self, ty: &ast::Type, reg_idx: usize, val: i128, scp: &mut AsmScope) {
         let low = (val & 0xFFFF) as u16;
         let low_med = (val >> 16) as u16;
@@ -276,18 +301,29 @@ impl CodeGenerator {
                     scp.vars.insert(store.dest.clone(), (src_ty, src_addr));
                 }
             }
+            ArgType::Call(call) => {
+                scp.data.push_str(&format!("    bl      {}\n", call));
+                self.emit_move_with_reg(&store.ty, 8, 0, scp);
+                self.emit_typed_store(&store.ty, 8, None, scp);
+                scp.vars
+                    .insert(store.dest.clone(), (store.ty, scp.stackptr));
+                scp.stackptr += 8;
+            }
         }
     }
     fn visit_expr(&mut self, expr: &Expr, scp: &mut AsmScope) {
         let mut reassign_addr = None;
         match &expr.lhs {
             ArgType::Sym(name) | ArgType::Temp(name) => {
-                println!("Sym Name: {name}, Expr Dest: {}", expr.dest);
                 let &(ty, sym_addr) = scp
                     .vars
                     .get(name)
                     .unwrap_or_else(|| panic!("Error loading address for variable {name}"));
                 self.emit_typed_load(&ty, 9, sym_addr, scp);
+            }
+            ArgType::Call(call) => {
+                scp.data.push_str(&format!("    bl      {}\n", call));
+                self.emit_move_with_reg(&expr.ty, 9, 0, scp);
             }
             ArgType::Imm(val) => {
                 scp.data.push_str(&format!("    mov     x9, {}\n", val));
@@ -301,6 +337,10 @@ impl CodeGenerator {
                     .get(name)
                     .unwrap_or_else(|| panic!("Error loading address for variable {name}"));
                 self.emit_typed_load(&ty, 10, sym_addr, scp);
+            }
+            ArgType::Call(call) => {
+                scp.data.push_str(&format!("    bl      {}\n", call));
+                self.emit_move_with_reg(&expr.ty, 10, 0, scp);
             }
             ArgType::Imm(val) => {
                 scp.data.push_str(&format!("    mov     x10, {}\n", val));
@@ -343,6 +383,9 @@ impl CodeGenerator {
                     ArgType::Imm(_val) => {
                         panic!("Cannot have imm in function def args")
                     }
+                    ArgType::Call(_) => {
+                        panic!("Cannot have function calls in function def args")
+                    }
                     ArgType::Temp(name) | ArgType::Sym(name) => {
                         scp.vars.insert(name.clone(), (*ty, 0)); // forward decl of these vars
                         args_vec.push((name.clone(), *ty));
@@ -381,6 +424,10 @@ impl CodeGenerator {
                             scp.stackptr += 8;
                         }
                     }
+                    ArgType::Call(call) => {
+                        scp.data.push_str(&format!("    bl      {}\n", call));
+                        self.emit_move_with_reg(&ty, argc, 0, scp);
+                    }
                     ArgType::Temp(name) | ArgType::Sym(name) => {
                         let &(var_ty, addr) = scp.vars.get(name).unwrap();
                         self.emit_typed_load(&var_ty, argc, addr, scp);
@@ -403,13 +450,31 @@ impl CodeGenerator {
             scp.data.push_str(&format!("    b       {}\n", br.label));
         }
     }
+    fn visit_ret(&mut self, ret: &Ret, scp: &mut AsmScope) {
+        if let Some(retval) = &ret.value {
+            match retval {
+                ArgType::Imm(val) => self.emit_typed_move(&ret.return_ty, 0, *val, scp),
+                ArgType::Sym(name) | ArgType::Temp(name) => {
+                    self.emit_typed_load(&ret.return_ty, 0, scp.vars.get(name).unwrap().1, scp); // SAFETY:
+                    // Unknown
+                }
+                ArgType::Call(call) => {
+                    scp.data.push_str(&format!("    bl      {}\n", call));
+                    self.emit_move_with_reg(&ret.return_ty, 0, 0, scp);
+                }
+            }
+        }
+        scp.data.push_str("    ret\n");
+    }
 
     pub fn generate(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let mut asm_scopes = Vec::<AsmScope>::new();
         let ir_scopes = std::mem::take(&mut self.scopes);
         for scope in &ir_scopes {
-            let mut asm_scp = AsmScope::default();
-            asm_scp.id = scope.id.clone();
+            let mut asm_scp = AsmScope {
+                id: scope.id.clone(),
+                ..AsmScope::default()
+            };
             for node in &scope.ir.nodes {
                 match node {
                     KlirNode::Alloca(_alloca) => {}
@@ -430,6 +495,9 @@ impl CodeGenerator {
                     }
                     KlirNode::Label(label) => {
                         asm_scp.data.push_str(&format!("{}:\n", label.name));
+                    }
+                    KlirNode::Ret(ret) => {
+                        self.visit_ret(ret, &mut asm_scp);
                     }
                     _ => todo!(),
                 }

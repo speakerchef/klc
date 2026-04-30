@@ -4,7 +4,7 @@ use crate::{
     lexer::{self},
 };
 use core::panic;
-use std::{collections::HashMap, error::Error, fmt::format, rc::Rc, str::Matches};
+use std::{collections::HashMap, error::Error, fmt::format, process::exit, rc::Rc, str::Matches};
 
 type SemaScope = HashMap<lexer::Symbol, ast::VarType>;
 // type SemaScope = HashMap<lexer::Symbol, ast::VarDecl>;
@@ -115,7 +115,7 @@ impl Sema<'_> {
         if let Some(rhs) = &expr.rhs {
             self.visit_expr(rhs, outer_scp);
         }
-        match expr.atom {
+        match &expr.atom {
             ast::AtomKind::Ident(id) => {
                 if !outer_scp.contains_key(&id.name) && !self.cached_ty.contains_key(&id.name) {
                     self.diag.push_err(
@@ -139,6 +139,20 @@ impl Sema<'_> {
                     expr.ty.set(None);
                 }
             }
+            ast::AtomKind::Call(call) => {
+                self.visit_fn_call(call, outer_scp);
+                if matches!(
+                    call.return_ty.get().unwrap_or(ast::Type::Void),
+                    ast::Type::Void
+                ) {
+                    self.diag.push_err(
+                        call.loc,
+                        "function returns type `void` and cannot be used in an expression",
+                    );
+                } else {
+                    expr.ty.set(Some(call.return_ty.get().unwrap()));
+                }
+            }
             ast::AtomKind::IntLit(lit) => {
                 expr.ty
                     .set(self.default_integer_resolution(lit.val, lit.loc));
@@ -146,6 +160,7 @@ impl Sema<'_> {
             ast::AtomKind::None => {
                 expr.ty
                     .set(if let (Some(lhs), Some(rhs)) = (&expr.lhs, &expr.rhs) {
+                        println!("Lhs: {:#?}", lhs);
                         let lty = lhs.ty.get().unwrap();
                         let rty = rhs.ty.get().unwrap();
                         let mut type_to_return = lty; // default to lhs type
@@ -180,6 +195,7 @@ impl Sema<'_> {
     fn visit_decl(&mut self, decl: &ast::VarDecl, outer_scp: &mut SemaScope) {
         self.visit_expr(decl.value.as_ref(), outer_scp);
         if decl.value.ty.get().is_none() {
+            println!("Error here");
             self.diag
                 .push_err(decl.loc, "could not resolve type for variable declaration");
         } else {
@@ -215,7 +231,12 @@ impl Sema<'_> {
                 panic!("Could not set default type");
             }
         }
-        self.set_all_types_expr(decl.value.as_ref(), decl.ty.get().unwrap());
+        let decl_infer_ty = decl.ty.get().unwrap_or_else(|| {
+            self.diag.display_diagnostics();
+            exit(1);
+        });
+
+        self.set_all_types_expr(decl.value.as_ref(), decl_infer_ty);
         outer_scp.insert(decl.name, decl.kind);
         // outer_scp.insert(decl.id.name, Rc::clone(decl));
         self.cached_ty.insert(decl.name, decl.ty.get().unwrap());
@@ -270,7 +291,7 @@ impl Sema<'_> {
         if let Some(args) = &call.args {
             for expr in args {
                 self.visit_expr(expr, outer_scp); // resolve types
-                match expr.atom {
+                match &expr.atom {
                     ast::AtomKind::Ident(id) => {
                         if let Some(&cached_var_ty) = self.cached_ty.get(&id.name) {
                             let expr_ty = expr.ty.get().unwrap_or_default();
@@ -284,6 +305,9 @@ impl Sema<'_> {
                                 );
                             }
                         }
+                    }
+                    ast::AtomKind::Call(call) => {
+                        self.visit_fn_call(&call, outer_scp);
                     }
                     ast::AtomKind::IntLit(val) => { /* add check against func def arg types */ }
                     ast::AtomKind::None => self
@@ -353,6 +377,12 @@ impl Sema<'_> {
             }
             UnionNode::StmtFn(stmt_fn) => {
                 self.visit_stmt_fn(stmt_fn, outer_scp);
+            }
+            UnionNode::StmtReturn(ret) => {
+                // NOTE: No check to see if used outside a function
+                if let Some(value) = &ret.value {
+                    self.visit_expr(value, outer_scp);
+                }
             }
             UnionNode::Call(call) => {
                 self.visit_fn_call(call, outer_scp);
