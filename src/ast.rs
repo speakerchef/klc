@@ -169,6 +169,7 @@ pub enum AtomKind {
     #[default]
     None,
     Ident(Ident),
+    Call(Call),
     IntLit(IntLit),
 }
 
@@ -177,6 +178,7 @@ impl Display for AtomKind {
         match self {
             AtomKind::Ident(id) => write!(f, "{}", id.name),
             AtomKind::IntLit(value) => write!(f, "{}", value.val),
+            AtomKind::Call(call) => write!(f, "{:#?}", call),
             AtomKind::None => write!(f, "None"),
         }
     }
@@ -217,6 +219,11 @@ pub struct StmtFn {
     pub body: Scope,
     pub return_ty: Type,
     pub loc: LocData,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct StmtReturn {
+    pub value: Option<Expr>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -271,6 +278,7 @@ pub enum UnionNode {
     Scope(Scope),
     Call(Call),
     StmtFn(Rc<StmtFn>),
+    StmtReturn(StmtReturn),
     StmtExit(StmtExit),
     StmtIf(StmtIf),
     StmtElif(StmtElif),

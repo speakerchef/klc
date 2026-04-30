@@ -1,11 +1,14 @@
 fn main() -> void {
-    let x = 50;
-    let y = 90;
-    let res = x + y;
-    if res > 50 {
-        exit res;
-    } else {
-        foo(69);
-    }
+    let ecode = get_exit_code() + 35;
+    use_call(get_exit_code());
+
+    exit ecode;
 }
 
+fn get_exit_code() -> i32 {
+    return 34;
+}
+
+fn use_call(boo: i32) -> void{
+        exit boo;
+}
