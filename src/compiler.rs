@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
 use std::process::{Command, exit};
@@ -70,29 +69,10 @@ impl Compiler {
         // KLIR Generation
         let mut irgenerator = IrGenerator::new(&mut program, &mut diagnostics, &mut symbol_table);
         irgenerator.emit_klir()?;
-
         let irscopes = std::mem::take(&mut irgenerator.scopes);
-        let generator_fn_table: HashMap<Rc<str>, CodegenFuncData> = fn_table
-            .iter()
-            .map(|(&sym, func)| {
-                let remapped_arg_vec = if let Some(args) = &func.args {
-                    Some(
-                        args.iter()
-                            .map(|&(argname, argty)| (symbol_table.get(argname).unwrap(), argty))
-                            .collect(),
-                    )
-                } else {
-                    None
-                };
-                let func_dat: (ast::Type, Option<Vec<(Rc<str>, ast::Type)>>) =
-                    (func.return_ty, remapped_arg_vec);
-
-                (symbol_table.get(sym).unwrap().clone(), func_dat)
-            })
-            .collect();
 
         // Assembly CodeGen
-        let mut backend = CodeGenerator::new(irscopes, &generator_fn_table);
+        let mut backend = CodeGenerator::new(irscopes);
         backend.generate()?;
 
         std::fs::write("/tmp/knobc_asm_out.s", &backend.asm).expect("Error during compilation!");
@@ -134,6 +114,7 @@ impl Compiler {
 
         if matches!(opts.mode, CompilerMode::Run) {
             let _ = Command::new("/tmp/knobc_compiled_bin").output()?;
+            // println!("Exit code: {}", str::from_utf8(&ecode.stdout).unwrap());
             let _ = Command::new("rm")
                 .args(vec![
                     "/tmp/knobc_asm_out.s",

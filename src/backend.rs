@@ -3,7 +3,6 @@ use std::{collections::HashMap, rc::Rc};
 
 use crate::{
     ast,
-    compiler::CodegenFuncData,
     irgenerator::{self, ArgKind, Br, Call, Define, Expr, KlirNode, ProgScope, Ret, Store},
     lexer,
 };
@@ -54,22 +53,18 @@ pub type FunctionMap = HashMap<
         Option<Vec<(String, ast::Type)>>, /* args */
     ),
 >;
-pub struct CodeGenerator<'a> {
+pub struct CodeGenerator {
     scopes: Vec<ProgScope>,
     pub asm: String,
-    fn_table: &'a HashMap<Rc<str>, CodegenFuncData>,
+    // fn_table: &'a HashMap<Rc<str>, CodegenFuncData>,
     fns_map: FunctionMap,
 }
 
-impl CodeGenerator<'_> {
-    pub fn new<'a>(
-        scopes: Vec<ProgScope>,
-        fn_table: &'a HashMap<Rc<str>, CodegenFuncData>,
-    ) -> CodeGenerator<'a> {
+impl CodeGenerator {
+    pub fn new(scopes: Vec<ProgScope>) -> CodeGenerator {
         CodeGenerator {
             scopes,
             asm: String::new(),
-            fn_table,
             fns_map: HashMap::new(),
         }
     }
@@ -395,9 +390,7 @@ impl CodeGenerator<'_> {
     }
     fn visit_expr(&mut self, expr: &Expr, scp: &mut AsmScope) {
         let mut reassign_addr = None;
-        let mut lhtmp = None;
-        let mut rhtmp = None;
-        match &expr.lhs {
+        let lhtmp = match &expr.lhs {
             ArgKind::Sym(name) | ArgKind::Temp(name) => {
                 let &(ty, sym_addr, is_arg) = scp
                     .vars
@@ -414,7 +407,7 @@ impl CodeGenerator<'_> {
                     .insert(call_tmp_name.clone(), (ty, scp.stackptr, false));
                 scp.expr_tmp_counter += 1;
                 scp.stackptr += 8;
-                lhtmp = Some(call_tmp_name);
+                call_tmp_name
             }
             ArgKind::Call(call) => {
                 self.emit_load_call_args(call, scp);
@@ -426,7 +419,7 @@ impl CodeGenerator<'_> {
                     .insert(call_tmp_name.clone(), (call.return_ty, scp.stackptr, false));
                 scp.expr_tmp_counter += 1;
                 scp.stackptr += 8;
-                lhtmp = Some(call_tmp_name);
+                call_tmp_name
             }
             ArgKind::Imm(val) => {
                 scp.data.push_str(&format!("    mov     x9, {}\n", val));
@@ -438,10 +431,10 @@ impl CodeGenerator<'_> {
                 );
                 scp.expr_tmp_counter += 1;
                 scp.stackptr += 8;
-                lhtmp = Some(call_tmp_name);
+                call_tmp_name
             }
-        }
-        match &expr.rhs {
+        };
+        let rhtmp = match &expr.rhs {
             ArgKind::Sym(name) | ArgKind::Temp(name) => {
                 let &(ty, sym_addr, is_arg) = scp
                     .vars
@@ -458,7 +451,7 @@ impl CodeGenerator<'_> {
                     .insert(call_tmp_name.clone(), (ty, scp.stackptr, false));
                 scp.expr_tmp_counter += 1;
                 scp.stackptr += 8;
-                rhtmp = Some(call_tmp_name);
+                call_tmp_name
             }
             ArgKind::Call(call) => {
                 self.emit_load_call_args(call, scp);
@@ -470,7 +463,7 @@ impl CodeGenerator<'_> {
                     .insert(call_tmp_name.clone(), (call.return_ty, scp.stackptr, false));
                 scp.expr_tmp_counter += 1;
                 scp.stackptr += 8;
-                rhtmp = Some(call_tmp_name);
+                call_tmp_name
             }
             ArgKind::Imm(val) => {
                 scp.data.push_str(&format!("    mov     x10, {}\n", val));
@@ -482,9 +475,9 @@ impl CodeGenerator<'_> {
                 );
                 scp.expr_tmp_counter += 1;
                 scp.stackptr += 8;
-                rhtmp = Some(call_tmp_name);
+                call_tmp_name
             }
-        }
+        };
         let mut ty_to_store = expr.ty;
         if let Some(&(ty, sym_addr, is_arg)) = scp.vars.get(&expr.dest)
             && !is_arg
@@ -493,15 +486,10 @@ impl CodeGenerator<'_> {
             ty_to_store = ty;
         }
 
-        // check if operands produced temporaries
-        if let Some(callname) = &lhtmp {
-            let &(ty, addr, _) = scp.vars.get(callname).unwrap();
-            self.emit_typed_load(&ty, 9, addr, scp);
-        }
-        if let Some(callname) = &rhtmp {
-            let &(ty, addr, _) = scp.vars.get(callname).unwrap();
-            self.emit_typed_load(&ty, 10, addr, scp);
-        }
+        let &(lty, laddr, _) = scp.vars.get(&lhtmp).unwrap();
+        let &(rty, raddr, _) = scp.vars.get(&rhtmp).unwrap();
+        self.emit_typed_load(&lty, 9, laddr, scp);
+        self.emit_typed_load(&rty, 10, raddr, scp);
 
         self.emit_operation(&expr.op, &expr.ty, scp);
         self.emit_typed_store(&ty_to_store, 8, reassign_addr, scp);

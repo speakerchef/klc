@@ -1,0 +1,13 @@
+fn main() -> void {
+    let result = fact(5);
+    exit result;
+}
+
+fn fact(n: i32) -> i32 {
+    if n == 0 {
+        return 1;
+    }
+    let n1 = n - 1;
+    let res = n * fact(n1);
+    return res;
+}

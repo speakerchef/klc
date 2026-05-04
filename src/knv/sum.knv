@@ -1,0 +1,13 @@
+fn main() -> void {
+    let total = sum(10);
+    exit total;
+}
+
+fn sum(n: i32) -> i32 {
+    if n == 0 {
+        return 0;
+    }
+    let n1 = n - 1;
+    let res = n + sum(n1);
+    return res;
+}

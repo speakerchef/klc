@@ -333,7 +333,6 @@ impl Parser<'_> {
 
         self.lex.next(); // eat '{'
         self.parse_scope(&mut stmt_if.scope);
-        println!("Token after if: {:#?}", self.lex.peek());
 
         while let Some(&maybe_elif) = self.lex.peek()
             && matches!(maybe_elif.kind, TokenType::KwElif)
@@ -356,9 +355,7 @@ impl Parser<'_> {
             });
             self.lex.next(); // eat '{'
             self.parse_scope(&mut _elif.scope);
-            println!("ELIF SCOPE: {:#?}", _elif.scope.stmts);
             stmt_if._elif.push(Some(_elif));
-            println!("Token after elif: {:#?}", self.lex.peek());
         }
 
         if let Some(&maybe_else) = self.lex.peek()
@@ -377,9 +374,7 @@ impl Parser<'_> {
             });
             self.lex.next(); // eat '{'
             self.parse_scope(&mut _else.scope);
-            println!("ELSE SCOPE: {:#?}", _else.scope.stmts);
             stmt_if._else = Some(_else);
-            println!("Token after else: {:#?}", self.lex.peek());
         }
         stmt_if
     }

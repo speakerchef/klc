@@ -4,7 +4,6 @@ use std::{error::Error, fmt::Display, rc::Rc};
 use crate::{
     ast::{self, UnionNode},
     diagnostics::DiagHandler,
-    irgenerator,
     lexer::{self, SymbolTable},
 };
 
@@ -652,7 +651,6 @@ impl IrGenerator<'_> {
         outer_scp.ir.nodes = nodes;
     }
 
-    // TODO: Fix function argument loading
     fn visit_scope(&mut self, stmts: &[UnionNode], outer_scp: &mut ProgScope) {
         for stmt in stmts {
             match stmt {

@@ -1,0 +1,13 @@
+fn main() -> void {
+    let p = pow(2, 7);
+    exit p;
+}
+
+fn pow(base: i32, exp: i32) -> i32 {
+    if exp == 0 {
+        return 1;
+    }
+    let e1 = exp - 1;
+    let res = base * pow(base, e1);
+    return res;
+}

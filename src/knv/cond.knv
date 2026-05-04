@@ -1,10 +1,20 @@
 fn main() -> void {
-    let foo = 15;
-    let bar = 39;
+    let foo = 20;
+    let bar = 50;
+    mut res = 0;
 
-    if foo == 1 {
-        exit bar;
-    } elif bar == 39 {
-        exit 100;
+    if foo < 20 {
+        res = bar;
+    } elif bar >= 50 {
+        res = 100;
+    } else {
+        res = 137;
+    }
+
+
+    if res == bar {
+        exit 10;
+    } else {
+        exit res;
     }
 }
