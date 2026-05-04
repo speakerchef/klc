@@ -236,7 +236,7 @@ pub struct SymbolTable {
 }
 
 impl SymbolTable {
-    fn push(&mut self, id: &str) -> Symbol {
+    pub fn push(&mut self, id: &str) -> Symbol {
         let rc = Rc::from(id);
         self.symbols.push(Rc::clone(&rc));
         let sym = Symbol(self.symbols.len() as u32 - 1); // sym = index

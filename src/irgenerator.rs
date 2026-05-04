@@ -135,7 +135,7 @@ pub struct Ret {
 impl Dump for Ret {
     fn dump(&self) {
         if let Some(val) = &self.value {
-            println!("    ret {}", val)
+            println!("    ret {} {}", self.return_ty, val)
         } else {
             println!("    ret")
         }
@@ -155,25 +155,21 @@ trait FromAstCall {
 impl FromAstCall for Call {
     fn from_ast_call(call: &ast::Call, sym: &mut SymbolTable) -> Self {
         let remapped_args = {
-            if let Some(args) = &call.args {
-                Some(
-                    args.iter()
-                        .map(|expr| {
-                            let argkind = match &expr.atom {
-                                ast::AtomKind::Ident(id) => ArgKind::Sym(id.name.to_string()),
-                                ast::AtomKind::Call(call) => {
-                                    ArgKind::Call(FromAstCall::from_ast_call(call, sym))
-                                }
-                                ast::AtomKind::IntLit(lit) => ArgKind::Imm(lit.val),
-                                ast::AtomKind::None => panic!("Unexpected None atomkind"),
-                            };
-                            (argkind, expr.ty.get().unwrap())
-                        })
-                        .collect(),
-                )
-            } else {
-                None
-            }
+            call.args.as_ref().map(|args| {
+                args.iter()
+                    .map(|expr| {
+                        let argkind = match &expr.atom {
+                            ast::AtomKind::Ident(id) => ArgKind::Sym(id.name.to_string()),
+                            ast::AtomKind::Call(call) => {
+                                ArgKind::Call(FromAstCall::from_ast_call(call, sym))
+                            }
+                            ast::AtomKind::IntLit(lit) => ArgKind::Imm(lit.val),
+                            ast::AtomKind::None => panic!("Unexpected None atomkind"),
+                        };
+                        (argkind, expr.ty.get().unwrap())
+                    })
+                    .collect()
+            })
         };
 
         Call {
@@ -277,7 +273,7 @@ pub struct Br {
 impl Dump for Br {
     fn dump(&self) {
         if let Some(flag) = &self.flag {
-            println!("    br {}, {}", self.label, flag);
+            println!("    br {}, %{}", self.label, flag);
         } else {
             println!("    br {}", self.label);
         }
@@ -323,25 +319,18 @@ impl IrGenerator<'_> {
             let lvalue = self.visit_expr(lhs, outer_scp);
             let rvalue = self.visit_expr(rhs, outer_scp);
             let dest = format!("t{}", self.reg_counter);
-
             self.reg_counter += 1;
 
             let lhs = match lvalue.0 {
                 ast::AtomKind::Ident(id) => ArgKind::Sym(id.name.to_string()),
                 ast::AtomKind::IntLit(value) => ArgKind::Imm(value.val),
-                ast::AtomKind::Call(call) => {
-                    // ArgType::Call(self.sym.get(call.name).unwrap().to_string())
-                    ArgKind::Call(Call::from_ast_call(&call, self.sym))
-                }
+                ast::AtomKind::Call(call) => ArgKind::Call(Call::from_ast_call(&call, self.sym)),
                 ast::AtomKind::None => ArgKind::Temp(lvalue.1.as_ref().unwrap().clone()),
             };
             let rhs = match rvalue.0 {
                 ast::AtomKind::Ident(id) => ArgKind::Sym(id.name.to_string()),
                 ast::AtomKind::IntLit(value) => ArgKind::Imm(value.val),
-                ast::AtomKind::Call(call) => {
-                    // ArgKind::Call(self.sym.get(call.name).unwrap().to_string())
-                    ArgKind::Call(Call::from_ast_call(&call, self.sym))
-                }
+                ast::AtomKind::Call(call) => ArgKind::Call(Call::from_ast_call(&call, self.sym)),
                 ast::AtomKind::None => ArgKind::Temp(rvalue.1.as_ref().unwrap().clone()),
             };
 
@@ -386,7 +375,6 @@ impl IrGenerator<'_> {
                     ast::AtomKind::IntLit(lit) => ArgKind::Imm(lit.val),
                     ast::AtomKind::Call(call) => {
                         self.visit_fn_call(&call, outer_scp);
-                        // ArgType::Call(self.sym.get(call.name).unwrap().to_string())
                         ArgKind::Call(Call::from_ast_call(&call, self.sym))
                     }
                     ast::AtomKind::None => panic!("unexpected None atomkind"),
@@ -418,7 +406,6 @@ impl IrGenerator<'_> {
                         ast::AtomKind::IntLit(val) => ArgKind::Imm(val.val),
                         ast::AtomKind::Call(call) => {
                             self.visit_fn_call(&call, outer_scp);
-                            // ArgKind::Call(self.sym.get(call.name).unwrap().to_string())
                             ArgKind::Call(Call::from_ast_call(&call, self.sym))
                         }
                         ast::AtomKind::None => panic!("unexpected None atomkind here"),
@@ -437,10 +424,10 @@ impl IrGenerator<'_> {
             atom.to_string()
         };
 
-        let if_body_label = format!("LABEL_IF_BODY_{}", self.label_counter);
-        let init_elif_body_label = format!("LABEL_ELIF_INIT_{}", self.label_counter);
-        let else_body_label = format!("LABEL_ELSE_BODY_{}", self.label_counter);
-        let endif_label = format!("LABEL_ENDIF_{}", self.label_counter);
+        let if_body_label = format!(".IF_BODY_{}", self.label_counter);
+        let init_elif_body_label = format!(".ELIF_INIT_{}", self.label_counter);
+        let else_body_label = format!(".ELSE_BODY_{}", self.label_counter);
+        let endif_label = format!(".ENDIF_{}", self.label_counter);
         self.label_counter += 1;
 
         // Conditional branch to if body
@@ -486,9 +473,9 @@ impl IrGenerator<'_> {
                 atom.to_string()
             };
 
-            let elif_body_label = format!("LABEL_ELIF_BODY_{}", self.label_counter);
+            let elif_body_label = format!(".ELIF_BODY_{}", self.label_counter);
             self.label_counter += 1;
-            let next_elif_body_label = format!("LABEL_ELIF_BODY_{}", self.label_counter);
+            let next_elif_body_label = format!(".ELIF_BODY_{}", self.label_counter);
             // Conditional branch to elif body
             outer_scp.ir.nodes.push(KlirNode::Br(Br {
                 label: elif_body_label.clone(),
@@ -525,19 +512,19 @@ impl IrGenerator<'_> {
             }
         }
 
-        // else body start
-        outer_scp.ir.nodes.push(KlirNode::Label(Label {
-            name: else_body_label.clone(),
-        }));
         // else body scope
         if let Some(maybeelse) = &stmt_if._else {
+            // else body start
+            outer_scp.ir.nodes.push(KlirNode::Label(Label {
+                name: else_body_label.clone(),
+            }));
             self.visit_scope(&maybeelse.scope.stmts, outer_scp);
+            // Jump to end
+            outer_scp.ir.nodes.push(KlirNode::Br(Br {
+                label: endif_label.clone(),
+                flag: None,
+            }));
         }
-        // Jump to end
-        outer_scp.ir.nodes.push(KlirNode::Br(Br {
-            label: endif_label.clone(),
-            flag: None,
-        }));
         // end start
         outer_scp.ir.nodes.push(KlirNode::Label(Label {
             name: endif_label.clone(),
@@ -545,9 +532,9 @@ impl IrGenerator<'_> {
     }
 
     fn visit_stmt_while(&mut self, stmt_while: &ast::StmtWhile, outer_scp: &mut ProgScope) {
-        let start_while_label = format!("START_WHILE_{}", self.label_counter);
-        let loop_while_label = format!("LOOP_WHILE_{}", self.label_counter);
-        let end_while_label = format!("END_WHILE_{}", self.label_counter);
+        let start_while_label = format!(".BEGIN_WHILE_{}", self.label_counter);
+        let loop_while_label = format!(".LOOP_WHILE_{}", self.label_counter);
+        let end_while_label = format!(".END_WHILE_{}", self.label_counter);
 
         outer_scp.ir.nodes.push(KlirNode::Label(Label {
             name: start_while_label.clone(),
@@ -623,7 +610,6 @@ impl IrGenerator<'_> {
                                 ast::AtomKind::IntLit(lit) => ArgKind::Imm(lit.val),
                                 ast::AtomKind::Call(call) => {
                                     self.visit_fn_call(&call, outer_scp);
-                                    // ArgKind::Call(self.sym.get(call.name).unwrap().to_string())
                                     ArgKind::Call(Call::from_ast_call(&call, self.sym))
                                 }
                                 _ => panic!("Impossible for now"),

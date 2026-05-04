@@ -60,7 +60,7 @@ impl Sema<'_> {
         }
     }
     #[allow(dead_code)]
-    fn resolve_integer_resolution(
+    pub fn resolve_integer_resolution(
         &mut self,
         val: i128,
         loc: crate::lexer::LocData,
