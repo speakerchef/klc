@@ -4,10 +4,9 @@ use crate::{
     lexer::{self},
 };
 use core::panic;
-use std::{collections::HashMap, error::Error, fmt::format, process::exit, rc::Rc, str::Matches};
+use std::{collections::HashMap, error::Error, process::exit, rc::Rc};
 
 type SemaScope = HashMap<lexer::Symbol, ast::VarType>;
-// type SemaScope = HashMap<lexer::Symbol, ast::VarDecl>;
 pub struct Sema<'a> {
     prog: &'a mut ast::Program,
     diag: &'a mut DiagHandler,
@@ -160,7 +159,6 @@ impl Sema<'_> {
             ast::AtomKind::None => {
                 expr.ty
                     .set(if let (Some(lhs), Some(rhs)) = (&expr.lhs, &expr.rhs) {
-                        println!("Lhs: {:#?}", lhs);
                         let lty = lhs.ty.get().unwrap();
                         let rty = rhs.ty.get().unwrap();
                         let mut type_to_return = lty; // default to lhs type
@@ -195,7 +193,6 @@ impl Sema<'_> {
     fn visit_decl(&mut self, decl: &ast::VarDecl, outer_scp: &mut SemaScope) {
         self.visit_expr(decl.value.as_ref(), outer_scp);
         if decl.value.ty.get().is_none() {
-            println!("Error here");
             self.diag
                 .push_err(decl.loc, "could not resolve type for variable declaration");
         } else {
@@ -238,7 +235,6 @@ impl Sema<'_> {
 
         self.set_all_types_expr(decl.value.as_ref(), decl_infer_ty);
         outer_scp.insert(decl.name, decl.kind);
-        // outer_scp.insert(decl.id.name, Rc::clone(decl));
         self.cached_ty.insert(decl.name, decl.ty.get().unwrap());
     }
 
@@ -263,7 +259,6 @@ impl Sema<'_> {
     }
 
     fn visit_stmt_fn(&mut self, stmt_fn: &ast::StmtFn, outer_scp: &mut SemaScope) {
-        // TODO: eventually manage undefined function names
         if let Some(args) = &stmt_fn.args {
             for &(sym, ty) in args {
                 self.cached_ty.insert(sym, ty);
@@ -273,8 +268,6 @@ impl Sema<'_> {
     }
 
     fn visit_fn_call(&mut self, call: &ast::Call, outer_scp: &mut SemaScope) {
-        // TODO: Impl logic to check passed type against fn decl arg types
-        // TODO: impl logic to check if correct arg shape is passed in
         if call.return_ty.get().is_none() {
             if let Some(func) = self.fns.get(&call.name) {
                 call.return_ty.set(Some(func.return_ty));
@@ -307,9 +300,9 @@ impl Sema<'_> {
                         }
                     }
                     ast::AtomKind::Call(call) => {
-                        self.visit_fn_call(&call, outer_scp);
+                        self.visit_fn_call(call, outer_scp);
                     }
-                    ast::AtomKind::IntLit(val) => { /* add check against func def arg types */ }
+                    ast::AtomKind::IntLit(_val) => { /* add check against func def arg types */ }
                     ast::AtomKind::None => self
                         .diag
                         .push_err(expr.loc, "unexpected None type received"),

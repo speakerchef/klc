@@ -1,14 +1,20 @@
 fn main() -> void {
-    let ecode = get_exit_code() + 35;
-    use_call(get_exit_code());
-
-    exit ecode;
+    let ecode = get_exit_code() + 34;
+    if ecode == 69 {
+        use_call(ecode);
+    } else {
+        use_call_2(40);
+    }
 }
 
 fn get_exit_code() -> i32 {
     return 34;
 }
 
-fn use_call(boo: i32) -> void{
-        exit boo;
+fn use_call(boo: i32) -> void {
+    exit boo;
+}
+
+fn use_call_2(boo: i32) -> void {
+    exit 10 + boo;
 }

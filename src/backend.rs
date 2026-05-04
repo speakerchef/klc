@@ -2,7 +2,8 @@ use std::{collections::HashMap, panic, rc::Rc};
 
 use crate::{
     ast,
-    irgenerator::{ArgType, Br, Call, Define, Expr, KlirNode, ProgScope, Ret, Store},
+    compiler::CodegenFuncData,
+    irgenerator::{self, ArgKind, Br, Call, Define, Expr, KlirNode, ProgScope, Ret, Store},
     lexer,
 };
 
@@ -11,74 +12,89 @@ struct AsmMetadata {
     align: usize,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct AsmScope {
     id: String,
     data: String,
     stackptr: usize,
-    vars: HashMap<String, (ast::Type, usize /* register counter */)>,
-    // fns_map: HashMap<
-    //     String,
-    //     (
-    //         ast::Type,                        /* ret type */
-    //         Option<Vec<(String, ast::Type)>>, /* args */
-    //     ),
-    // >,
-}
-
-pub struct CodeGenerator {
-    scopes: Vec<ProgScope>,
-    pub asm: String,
-    stackptr: usize,
-    vars: HashMap<String, (ast::Type, usize /* register counter */)>,
-    fns_map: HashMap<
+    vars: HashMap<
         String,
         (
-            ast::Type,                        /* ret type */
-            Option<Vec<(String, ast::Type)>>, /* args */
+            ast::Type,
+            usize, /* register counter */
+            bool,  /* is function arg?
+                    * Denotes if we load from stack address or register
+                    */
         ),
     >,
 }
 
-impl CodeGenerator {
-    pub fn new(scopes: Vec<ProgScope>) -> Self {
+impl Default for AsmScope {
+    fn default() -> Self {
+        Self {
+            id: Default::default(),
+            data: Default::default(),
+            stackptr: 16, /* reserved for FP & LR */
+            vars: Default::default(),
+        }
+    }
+}
+
+pub type FunctionMap = HashMap<
+    String, /* function name */
+    (
+        ast::Type,                        /* ret type */
+        Option<Vec<(String, ast::Type)>>, /* args */
+    ),
+>;
+pub struct CodeGenerator<'a> {
+    scopes: Vec<ProgScope>,
+    pub asm: String,
+    fn_table: &'a HashMap<Rc<str>, CodegenFuncData>,
+    fns_map: FunctionMap,
+}
+
+impl CodeGenerator<'_> {
+    pub fn new<'a>(
+        scopes: Vec<ProgScope>,
+        fn_table: &'a HashMap<Rc<str>, CodegenFuncData>,
+    ) -> CodeGenerator<'a> {
         CodeGenerator {
             scopes,
             asm: String::new(),
+            fn_table,
             fns_map: HashMap::new(),
-            stackptr: 0,
-            vars: HashMap::new(),
         }
     }
     fn emit_typed_load(&mut self, ty: &ast::Type, reg_idx: usize, addr: usize, scp: &mut AsmScope) {
         match ty {
             ast::Type::I8 => {
                 scp.data
-                    .push_str(&format!("    ldrsb   x{}, [sp, {}]\n", reg_idx, addr));
+                    .push_str(&format!("    ldrsb   x{}, [x29, {}]\n", reg_idx, addr));
             }
             ast::Type::I16 => {
                 scp.data
-                    .push_str(&format!("    ldrsh   x{}, [sp, {}]\n", reg_idx, addr));
+                    .push_str(&format!("    ldrsh   x{}, [x29, {}]\n", reg_idx, addr));
             }
             ast::Type::I32 => {
                 scp.data
-                    .push_str(&format!("    ldrsw   x{}, [sp, {}]\n", reg_idx, addr));
+                    .push_str(&format!("    ldrsw   x{}, [x29, {}]\n", reg_idx, addr));
             }
             ast::Type::U8 | ast::Type::Char | ast::Type::Bool => {
                 scp.data
-                    .push_str(&format!("    ldrb    w{}, [sp, {}]\n", reg_idx, addr));
+                    .push_str(&format!("    ldrb    w{}, [x29, {}]\n", reg_idx, addr));
             }
             ast::Type::U16 => {
                 scp.data
-                    .push_str(&format!("    ldrh    w{}, [sp, {}]\n", reg_idx, addr));
+                    .push_str(&format!("    ldrh    w{}, [x29, {}]\n", reg_idx, addr));
             }
             ast::Type::U32 => {
                 scp.data
-                    .push_str(&format!("    ldr     w{}, [sp, {}]\n", reg_idx, addr));
+                    .push_str(&format!("    ldr     w{}, [x29, {}]\n", reg_idx, addr));
             }
             ast::Type::I64 | ast::Type::U64 => {
                 scp.data
-                    .push_str(&format!("    ldr     x{}, [sp, {}]\n", reg_idx, addr));
+                    .push_str(&format!("    ldr     x{}, [x29, {}]\n", reg_idx, addr));
             }
             _ => todo!("This type is not implemented for codegen"),
         }
@@ -98,19 +114,19 @@ impl CodeGenerator {
         match ty {
             ast::Type::I8 | ast::Type::U8 | ast::Type::Char | ast::Type::Bool => {
                 scp.data
-                    .push_str(&format!("    strb    w{}, [sp, {}]\n", reg_idx, addr));
+                    .push_str(&format!("    strb    w{}, [x29, {}]\n", reg_idx, addr));
             }
             ast::Type::I16 | ast::Type::U16 => {
                 scp.data
-                    .push_str(&format!("    strh    w{}, [sp, {}]\n", reg_idx, addr));
+                    .push_str(&format!("    strh    w{}, [x29, {}]\n", reg_idx, addr));
             }
             ast::Type::I32 | ast::Type::U32 => {
                 scp.data
-                    .push_str(&format!("    str     w{}, [sp, {}]\n", reg_idx, addr));
+                    .push_str(&format!("    str     w{}, [x29, {}]\n", reg_idx, addr));
             }
             ast::Type::I64 | ast::Type::U64 => {
                 scp.data
-                    .push_str(&format!("    str     x{}, [sp, {}]\n", reg_idx, addr));
+                    .push_str(&format!("    str     x{}, [x29, {}]\n", reg_idx, addr));
             }
             _ => todo!("This type is not implemented for codegen"),
         }
@@ -272,41 +288,55 @@ impl CodeGenerator {
             _ => todo!("Type not impl for `mov` yet"),
         }
     }
-    fn emit_epilogue(&mut self, amt: usize) {
-        self.asm.push_str(&format!("    add     sp, sp, {}\n", amt));
+
+    fn emit_load_call_args(&mut self, call: &irgenerator::Call, scp: &mut AsmScope) {
+        if let Some(args) = &call.args {
+            for (argc, (argkind, argty)) in args.iter().enumerate() {
+                match argkind {
+                    ArgKind::Imm(val) => self.emit_typed_move(argty, argc, *val, scp),
+                    ArgKind::Temp(name) | ArgKind::Sym(name) => {
+                        let &(var_ty, addr, _) = scp.vars.get(name).unwrap();
+                        self.emit_typed_load(&var_ty, argc, addr, scp);
+                    }
+                    ArgKind::Call(call) => {
+                        self.emit_load_call_args(call, scp);
+                        scp.data.push_str(&format!("    bl      {}\n", call.name));
+                        self.emit_move_with_reg(&call.return_ty, argc, 0, scp);
+                    }
+                }
+            }
+        }
     }
-    fn emit_prologue(&mut self, amt: usize) {
-        self.asm.push_str(&format!("    sub     sp, sp, {}\n", amt));
-    }
-    fn emit_metadata(&mut self, md: AsmMetadata) {
-        self.asm
-            .insert_str(0, &format!(".global {}\n.align {}\n", md.entry, md.align));
-    }
+
     fn visit_store(&mut self, store: &Store, scp: &mut AsmScope) {
         match &store.src {
-            ArgType::Imm(val) => {
+            ArgKind::Imm(val) => {
                 self.emit_typed_move(&store.ty, 8, *val, scp);
                 self.emit_typed_store(&store.ty, 8, None, scp);
                 scp.vars
-                    .insert(store.dest.clone(), (store.ty, scp.stackptr));
+                    .insert(store.dest.clone(), (store.ty, scp.stackptr, false));
+                scp.stackptr += 8;
             }
-            ArgType::Sym(name) | ArgType::Temp(name) => {
-                let &(src_ty, src_addr) = scp.vars.get(name).unwrap();
-                if let Some(&(dst_ty, dst_addr)) = scp.vars.get(&store.dest) {
+            ArgKind::Sym(name) | ArgKind::Temp(name) => {
+                let &(src_ty, src_addr, _) = scp.vars.get(name).unwrap();
+                if let Some(&(dst_ty, dst_addr, _)) = scp.vars.get(&store.dest) {
                     self.emit_typed_load(&src_ty, 8, src_addr, scp);
                     self.emit_typed_store(&dst_ty, 8, Some(dst_addr), scp);
-                    scp.vars.insert(store.dest.clone(), (dst_ty, dst_addr));
+                    scp.vars
+                        .insert(store.dest.clone(), (dst_ty, dst_addr, false));
                     scp.stackptr += 8;
                 } else {
-                    scp.vars.insert(store.dest.clone(), (src_ty, src_addr));
+                    scp.vars
+                        .insert(store.dest.clone(), (src_ty, src_addr, false));
                 }
             }
-            ArgType::Call(call) => {
-                scp.data.push_str(&format!("    bl      {}\n", call));
+            ArgKind::Call(call) => {
+                self.emit_load_call_args(call, scp);
+                scp.data.push_str(&format!("    bl      {}\n", call.name));
                 self.emit_move_with_reg(&store.ty, 8, 0, scp);
                 self.emit_typed_store(&store.ty, 8, None, scp);
                 scp.vars
-                    .insert(store.dest.clone(), (store.ty, scp.stackptr));
+                    .insert(store.dest.clone(), (store.ty, scp.stackptr, false));
                 scp.stackptr += 8;
             }
         }
@@ -314,40 +344,49 @@ impl CodeGenerator {
     fn visit_expr(&mut self, expr: &Expr, scp: &mut AsmScope) {
         let mut reassign_addr = None;
         match &expr.lhs {
-            ArgType::Sym(name) | ArgType::Temp(name) => {
-                let &(ty, sym_addr) = scp
+            ArgKind::Sym(name) | ArgKind::Temp(name) => {
+                let &(ty, sym_addr, is_arg) = scp
                     .vars
                     .get(name)
                     .unwrap_or_else(|| panic!("Error loading address for variable {name}"));
-                self.emit_typed_load(&ty, 9, sym_addr, scp);
+                if is_arg {
+                    self.emit_move_with_reg(&ty, 9, sym_addr, scp);
+                } else {
+                    self.emit_typed_load(&ty, 9, sym_addr, scp);
+                }
             }
-            ArgType::Call(call) => {
-                scp.data.push_str(&format!("    bl      {}\n", call));
+            ArgKind::Call(call) => {
+                self.emit_load_call_args(call, scp);
+                scp.data.push_str(&format!("    bl      {}\n", call.name));
                 self.emit_move_with_reg(&expr.ty, 9, 0, scp);
             }
-            ArgType::Imm(val) => {
+            ArgKind::Imm(val) => {
                 scp.data.push_str(&format!("    mov     x9, {}\n", val));
             }
         }
         match &expr.rhs {
-            ArgType::Sym(name) | ArgType::Temp(name) => {
-                println!("Sym Name: {name}, Expr Dest: {}", expr.dest);
-                let &(ty, sym_addr) = scp
+            ArgKind::Sym(name) | ArgKind::Temp(name) => {
+                let &(ty, sym_addr, is_arg) = scp
                     .vars
                     .get(name)
                     .unwrap_or_else(|| panic!("Error loading address for variable {name}"));
-                self.emit_typed_load(&ty, 10, sym_addr, scp);
+                if is_arg {
+                    self.emit_move_with_reg(&ty, 10, sym_addr, scp);
+                } else {
+                    self.emit_typed_load(&ty, 10, sym_addr, scp);
+                }
             }
-            ArgType::Call(call) => {
-                scp.data.push_str(&format!("    bl      {}\n", call));
+            ArgKind::Call(call) => {
+                self.emit_load_call_args(call, scp);
+                scp.data.push_str(&format!("    bl      {}\n", call.name));
                 self.emit_move_with_reg(&expr.ty, 10, 0, scp);
             }
-            ArgType::Imm(val) => {
+            ArgKind::Imm(val) => {
                 scp.data.push_str(&format!("    mov     x10, {}\n", val));
             }
         }
         let mut ty_to_store = expr.ty;
-        if let Some(&(ty, sym_addr)) = scp.vars.get(&expr.dest) {
+        if let Some(&(ty, sym_addr, _)) = scp.vars.get(&expr.dest) {
             reassign_addr = Some(sym_addr);
             ty_to_store = ty;
         }
@@ -364,33 +403,24 @@ impl CodeGenerator {
                     scp.stackptr += 8;
                     ret
                 },
+                false,
             ),
         );
     }
     fn visit_define(&mut self, define: &Define, scp: &mut AsmScope) {
-        //TODO: function arg issues with expression
-        if define.name == "main" {
-            scp.data.push_str("_main:\n");
-            // let aligned_size = scp.stackptr.next_multiple_of(16);
-            // self.emit_prologue(aligned_size + 16);
-        } else {
-            scp.data.push_str(&format!("{}:\n", define.name));
-        }
         let mut args_vec = Vec::new();
         if let Some(args) = &define.args {
             for (argc, (arg_type, ty)) in args.iter().enumerate() {
                 match arg_type {
-                    ArgType::Imm(_val) => {
+                    ArgKind::Imm(_val) => {
                         panic!("Cannot have imm in function def args")
                     }
-                    ArgType::Call(_) => {
+                    ArgKind::Call(_) => {
                         panic!("Cannot have function calls in function def args")
                     }
-                    ArgType::Temp(name) | ArgType::Sym(name) => {
-                        scp.vars.insert(name.clone(), (*ty, 0)); // forward decl of these vars
+                    ArgKind::Temp(name) | ArgKind::Sym(name) => {
+                        scp.vars.insert(name.clone(), (*ty, argc, true)); // forward decl of these vars
                         args_vec.push((name.clone(), *ty));
-                        // let &(var_ty, addr) = self.vars.get(name).unwrap();
-                        // self.emit_typed_load(&var_ty, argc, addr);
                     }
                 }
             }
@@ -410,27 +440,35 @@ impl CodeGenerator {
     fn visit_call(&mut self, call: &Call, scp: &mut AsmScope) {
         if let Some(args) = &call.args {
             for (argc, (arg_type, ty)) in args.iter().enumerate() {
-                // TODO: Emit loads for argument variables passed in
                 match arg_type {
-                    ArgType::Imm(val) => {
+                    ArgKind::Imm(val) => {
                         self.emit_typed_move(ty, argc, *val, scp);
-                        self.emit_typed_store(&ty, argc, None, scp);
+                        // self.emit_typed_store(ty, argc, None, scp);
 
-                        // TODO: Lookup argnames from func decl and update address with these values;
-                        if let Some(fn_def) = self.fns_map.get(&call.name) {
-                            let argname = &fn_def.1.as_ref().unwrap()[argc].0;
-                            let arg_ty = &fn_def.1.as_ref().unwrap()[argc].1;
-                            scp.vars.insert(argname.clone(), (*arg_ty, scp.stackptr));
-                            scp.stackptr += 8;
+                        // TODO: NOTE:
+                        // if let Some(fn_def) = self.fns_map.get(&call.name) {
+                        //     let argname = &fn_def.1.as_ref().unwrap()[argc].0;
+                        //     let arg_ty = &fn_def.1.as_ref().unwrap()[argc].1;
+                        //     // scp.vars.insert(argname.clone(), (*arg_ty, scp.stackptr));
+                        //
+                        //     // store the register number we want to load from
+                        //     scp.vars.insert(argname.clone(), (*arg_ty, argc, true));
+                        //
+                        //     // scp.stackptr += 8;
+                        // }
+                    }
+                    ArgKind::Call(call) => {
+                        self.emit_load_call_args(call, scp);
+                        scp.data.push_str(&format!("    bl      {}\n", call.name));
+                        self.emit_move_with_reg(ty, argc, 0, scp);
+                    }
+                    ArgKind::Temp(name) | ArgKind::Sym(name) => {
+                        let &(var_ty, addr, is_arg) = scp.vars.get(name).unwrap();
+                        if is_arg {
+                            self.emit_move_with_reg(&var_ty, argc, addr, scp);
+                        } else {
+                            self.emit_typed_load(&var_ty, argc, addr, scp);
                         }
-                    }
-                    ArgType::Call(call) => {
-                        scp.data.push_str(&format!("    bl      {}\n", call));
-                        self.emit_move_with_reg(&ty, argc, 0, scp);
-                    }
-                    ArgType::Temp(name) | ArgType::Sym(name) => {
-                        let &(var_ty, addr) = scp.vars.get(name).unwrap();
-                        self.emit_typed_load(&var_ty, argc, addr, scp);
                     }
                 }
             }
@@ -439,7 +477,7 @@ impl CodeGenerator {
     }
     fn visit_br(&mut self, br: &Br, scp: &mut AsmScope) {
         if let Some(flag) = &br.flag {
-            let &(ty, addr) = scp
+            let &(ty, addr, _) = scp
                 .vars
                 .get(flag)
                 .unwrap_or_else(|| panic!("Could not get addr for {flag}"));
@@ -453,18 +491,33 @@ impl CodeGenerator {
     fn visit_ret(&mut self, ret: &Ret, scp: &mut AsmScope) {
         if let Some(retval) = &ret.value {
             match retval {
-                ArgType::Imm(val) => self.emit_typed_move(&ret.return_ty, 0, *val, scp),
-                ArgType::Sym(name) | ArgType::Temp(name) => {
+                ArgKind::Imm(val) => self.emit_typed_move(&ret.return_ty, 0, *val, scp),
+                ArgKind::Sym(name) | ArgKind::Temp(name) => {
                     self.emit_typed_load(&ret.return_ty, 0, scp.vars.get(name).unwrap().1, scp); // SAFETY:
                     // Unknown
                 }
-                ArgType::Call(call) => {
-                    scp.data.push_str(&format!("    bl      {}\n", call));
+                ArgKind::Call(call) => {
+                    scp.data.push_str(&format!("    bl      {}\n", call.name));
                     self.emit_move_with_reg(&ret.return_ty, 0, 0, scp);
                 }
             }
         }
-        scp.data.push_str("    ret\n");
+    }
+
+    fn emit_prologue(&mut self, scp: &mut AsmScope) {
+        let amt = scp.stackptr.next_multiple_of(16) + 16; /* +16 to account for FP & Link register `stp` */
+        scp.data.insert_str(0, "    mov     x29, sp \n");
+        scp.data
+            .insert_str(0, &format!("    stp     x29, x30, [sp, -{}]!\n", amt));
+    }
+    fn emit_epilogue(&mut self, scp: &mut AsmScope) {
+        let amt = scp.stackptr.next_multiple_of(16) + 16;
+        scp.data
+            .push_str(&format!("    ldp     x29, x30, [sp], {}\n", amt));
+    }
+    fn emit_metadata(&mut self, md: AsmMetadata) {
+        self.asm
+            .insert_str(0, &format!(".global {}\n.align {}\n", md.entry, md.align));
     }
 
     pub fn generate(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -499,17 +552,19 @@ impl CodeGenerator {
                     KlirNode::Ret(ret) => {
                         self.visit_ret(ret, &mut asm_scp);
                     }
-                    _ => todo!(),
                 }
             }
+            self.emit_prologue(&mut asm_scp);
+            if asm_scp.id == "main" {
+                asm_scp.data.insert_str(0, "_main:\n"); // entry point
+            } else {
+                asm_scp.data.insert_str(0, &format!("{}:\n", asm_scp.id)); // label
+            }
+            self.emit_epilogue(&mut asm_scp);
+            asm_scp.data.push_str("    ret\n");
             asm_scopes.push(asm_scp);
         }
 
-        println!("ASM SCOPES: {:#?}", asm_scopes);
-
-        // NOTE: This is globally effective
-        // Arm64 16byte alignment requirement
-        let aligned_size = self.stackptr.next_multiple_of(16);
         let md = AsmMetadata {
             entry: "_main".into(),
             align: 4,
@@ -517,8 +572,6 @@ impl CodeGenerator {
         for scp in &asm_scopes {
             self.asm.push_str(&scp.data);
         }
-        self.emit_epilogue(aligned_size);
-        self.emit_prologue(aligned_size);
         self.emit_metadata(md);
         println!("ASSEMBLY: \n{}", self.asm);
         Ok(())

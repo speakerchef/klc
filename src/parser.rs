@@ -1,6 +1,4 @@
-use std::{
-    cell::Cell, collections::HashMap, error::Error, process::exit, rc::Rc, thread::LocalKey,
-};
+use std::{cell::Cell, collections::HashMap, error::Error, process::exit, rc::Rc};
 
 use crate::{
     ast::{self, AtomKind, StmtReturn, Type, VarType},
@@ -182,7 +180,7 @@ impl Parser<'_> {
             let prev_token = self.lex.peek_behind().unwrap();
             self.diag.push_err(
                 prev_token.loc,
-                &format!("expected expression after `{:?}`", prev_token),
+                &format!("expected expression after `{}`", prev_token.kind),
             );
             return lhs;
         }
@@ -211,7 +209,6 @@ impl Parser<'_> {
                         } else {
                             self.lex.next(); // eat ')'
                         }
-                        println!("Tok after parsing call at decl: {:#?}", self.lex.peek());
                         lhs.as_mut().unwrap().atom = AtomKind::Call(call);
                     } else {
                         lhs.as_mut().unwrap().atom = AtomKind::Ident(ast::Ident {
@@ -240,7 +237,7 @@ impl Parser<'_> {
                     //TODO: Make this a sema analysis error
                     self.diag.push_err(
                         operand.loc,
-                        &format!("invalid operand of type `{:?}` in expression", operand.kind),
+                        &format!("invalid operand of type `{}` in expression", operand.kind),
                     );
                     return lhs;
                 }
@@ -309,7 +306,7 @@ impl Parser<'_> {
         ast::StmtExit {
             exit_code: Box::new(expr.unwrap_or_else(|| {
                 self.diag
-                    .push_err(loc, "could not parse expression after `exit`");
+                    .push_err(loc, "expected valid expression after `exit`");
                 ast::Expr::default()
             })),
             loc,
@@ -321,7 +318,7 @@ impl Parser<'_> {
             cond: self.parse_expr(0., outer_scp).unwrap_or_else(|| {
                 self.diag.push_err(
                     self.lex.peek_behind().unwrap().loc,
-                    "invalid condition for `if`",
+                    "expected valid `if` condition",
                 );
                 ast::Expr::default()
             }),
@@ -335,18 +332,16 @@ impl Parser<'_> {
         });
 
         self.lex.next(); // eat '{'
-        self.parse_scope(&mut stmt_if.scope).unwrap_or_else(|_| {
-            self.diag
-                .push_err(stmt_if.cond.loc, "invalid body for `if`");
-        });
+        self.parse_scope(&mut stmt_if.scope);
 
         while let Some(&maybe_elif) = self.lex.peek()
             && matches!(maybe_elif.kind, TokenType::KwElif)
         {
+            self.lex.next(); // eat 'elif'
             let mut _elif = ast::StmtElif {
                 cond: self.parse_expr(0., outer_scp).unwrap_or_else(|| {
                     self.diag
-                        .push_err(maybe_elif.loc, "invalid condition for `elif`");
+                        .push_err(maybe_elif.loc, "expected valid `elif` condition");
                     ast::Expr::default()
                 }),
                 loc: maybe_elif.loc,
@@ -359,10 +354,7 @@ impl Parser<'_> {
                 _elif.scope.fns.insert(k, Rc::clone(v));
             });
             self.lex.next(); // eat '{'
-            self.parse_scope(&mut _elif.scope).unwrap_or_else(|_| {
-                self.diag
-                    .push_err(stmt_if.cond.loc, "invalid body for `elif`")
-            });
+            self.parse_scope(&mut _elif.scope);
             stmt_if._elif.push(Some(_elif));
         }
 
@@ -380,10 +372,7 @@ impl Parser<'_> {
                 _else.scope.fns.insert(k, Rc::clone(v));
             });
             self.lex.next(); // eat '{'
-            self.parse_scope(&mut _else.scope).unwrap_or_else(|_| {
-                self.diag
-                    .push_err(stmt_if.cond.loc, "invalid body for `else`")
-            });
+            self.parse_scope(&mut _else.scope);
             stmt_if._else = Some(_else);
         }
         stmt_if
@@ -394,7 +383,7 @@ impl Parser<'_> {
             cond: self.parse_expr(0., outer_scp).unwrap_or_else(|| {
                 self.diag.push_err(
                     self.lex.peek_behind().unwrap().loc,
-                    "invalid condition for `while`",
+                    "expected valid `while` condition",
                 );
                 ast::Expr::default()
             }),
@@ -408,12 +397,7 @@ impl Parser<'_> {
         });
 
         self.lex.next(); // eat '{'
-        self.parse_scope(&mut stmt_while.scope).unwrap_or_else(|_| {
-            self.diag.push_err(
-                self.lex.peek_behind().unwrap().loc,
-                "invalid body for `while`",
-            )
-        });
+        self.parse_scope(&mut stmt_while.scope);
 
         stmt_while
     }
@@ -487,7 +471,6 @@ impl Parser<'_> {
                 if self.validate_tok(TokenType::Rparen) {
                     break;
                 } else if !self.validate_tok(TokenType::Comma) {
-                    println!("Sumn went wrong");
                     self.diag
                         .push_err(loc, "expected `,` between function arguments");
                 } else {
@@ -548,6 +531,8 @@ impl Parser<'_> {
                 "expected function identifier after `fn`",
             );
         }
+
+        // Function arguments
         stmt_fn.args = if let Some(args) = self.parse_args(false, outer_scp)
             && let ArgVec::FnDefArgs(def_args) = args
         {
@@ -555,7 +540,7 @@ impl Parser<'_> {
         } else {
             None
         };
-        println!("Fn Args: {:#?}", stmt_fn.args);
+
         if !self.validate_tok(TokenType::Rparen) {
             self.diag.push_err(
                 self.lex
@@ -615,28 +600,13 @@ impl Parser<'_> {
         outer_scp.fns.iter().for_each(|(&k, v)| {
             stmt_fn.body.fns.insert(k, Rc::clone(v));
         });
-        self.parse_scope(&mut stmt_fn.body).unwrap_or_else(|_| {
-            self.diag.push_err(
-                self.lex
-                    .peek_behind()
-                    .unwrap_or_else(|| {
-                        self.diag.display_diagnostics();
-                        exit(1);
-                    })
-                    .loc,
-                "invalid function body",
-            )
-        });
+        self.parse_scope(&mut stmt_fn.body);
         stmt_fn
     }
 
     fn parse_stmt_return(&mut self, outer_scp: &mut ast::Scope) -> ast::StmtReturn {
         StmtReturn {
-            value: if let Some(expr) = self.parse_expr(0., outer_scp) {
-                Some(expr)
-            } else {
-                None
-            },
+            value: self.parse_expr(0., outer_scp),
         }
     }
 
@@ -649,11 +619,7 @@ impl Parser<'_> {
         self.lex.next(); // eat ident
 
         call.return_ty
-            .set(if let Some(existing_fn) = self.fns.get(&name) {
-                Some(existing_fn.return_ty)
-            } else {
-                None
-            });
+            .set(self.fns.get(&name).map(|existing_fn| existing_fn.return_ty));
         call.args = if let Some(args) = self.parse_args(true, outer_scp)
             && let ArgVec::FnCallArgs(call_args) = args
         {
@@ -664,7 +630,7 @@ impl Parser<'_> {
         call
     }
 
-    fn parse_scope(&mut self, outer_scp: &mut ast::Scope) -> Result<(), Box<dyn Error>> {
+    fn parse_scope(&mut self, outer_scp: &mut ast::Scope) {
         let mut loc_scp = ast::Scope::default();
         outer_scp.vars.iter().for_each(|(&k, v)| {
             loc_scp.vars.insert(k, Rc::clone(v));
@@ -705,6 +671,11 @@ impl Parser<'_> {
                         && matches!(tok.kind, TokenType::Lparen)
                     {
                         let call = self.parse_fn_call(sym, &mut loc_scp);
+                        if !self.validate_tok(TokenType::Rparen) {
+                            self.diag.push_err(self.lex.peek_behind().unwrap().loc /* SAFETY: Guaranteed to exist */, "expected `)`");
+                        } else {
+                            self.lex.next(); // eat ')'
+                        }
                         outer_scp.stmts.push(ast::UnionNode::Call(call));
                     } else {
                         let mut decl = self.parse_var_decl(tok, &mut loc_scp).unwrap();
@@ -747,7 +718,6 @@ impl Parser<'_> {
                     self.lex.next(); // eat 'return'
                     let ret = self.parse_stmt_return(&mut loc_scp);
                     outer_scp.stmts.push(ast::UnionNode::StmtReturn(ret));
-                    println!("Token after return: {:#?}", self.lex.peek().unwrap());
                 }
                 TokenType::Semi => {
                     self.lex.next();
@@ -757,7 +727,7 @@ impl Parser<'_> {
                 TokenType::Lcurly => {
                     self.lex.next();
                     let mut scp = ast::Scope::default();
-                    self.parse_scope(&mut loc_scp)?;
+                    self.parse_scope(&mut loc_scp);
                     scp.stmts.append(&mut loc_scp.stmts);
                     outer_scp.stmts.push(ast::UnionNode::Scope(scp));
                 }
@@ -767,16 +737,15 @@ impl Parser<'_> {
                 }
             }
         }
-        Ok(())
     }
 
-    pub fn create_program(&mut self) -> Result<ast::Program, Box<dyn Error>> {
+    pub fn create_program(&mut self) -> ast::Program {
         let mut global_scope = ast::Scope::default();
-        self.parse_scope(&mut global_scope)?;
-        Ok(ast::Program {
+        self.parse_scope(&mut global_scope);
+        ast::Program {
             sym: std::mem::take(&mut self.lex.sym),
             stmts: global_scope.stmts,
             fns: std::mem::take(&mut self.fns),
-        })
+        }
     }
 }

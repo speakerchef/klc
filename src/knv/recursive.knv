@@ -1,0 +1,17 @@
+fn main() -> void {
+    let fibout = fib(10);
+    exit fibout;
+}
+
+fn fib(i: i32) -> i32 {
+    if i == 0 {
+        return 0;
+    }
+    if i == 1 {
+        return 1;
+    }
+    let i1 = i - 1;
+    let i2 = i - 2;
+    let res = fib(i1) + fib(i2);
+    return res;
+}

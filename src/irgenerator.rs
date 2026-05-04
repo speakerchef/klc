@@ -4,7 +4,8 @@ use std::{error::Error, fmt::Display, rc::Rc};
 use crate::{
     ast::{self, UnionNode},
     diagnostics::DiagHandler,
-    lexer::{self, Symbol, SymbolTable},
+    irgenerator,
+    lexer::{self, SymbolTable},
 };
 
 #[derive(Default, Debug)]
@@ -27,8 +28,6 @@ impl From<&str> for Target {
 
 #[derive(Default, Debug)]
 pub struct KlirBlob {
-    //TODO: Assign method names to scopes
-    //for classification
     pub nodes: Vec<KlirNode>,
 }
 
@@ -68,20 +67,20 @@ pub struct IrGenerator<'a> {
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-pub enum ArgType {
+pub enum ArgKind {
     Sym(String),
     Temp(String),
-    Call(String),
+    Call(Call),
     Imm(i128),
 }
 
-impl Display for ArgType {
+impl Display for ArgKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ArgType::Sym(id) => write!(f, "%{}", id),
-            ArgType::Temp(temp_reg) => write!(f, "%{}", temp_reg),
-            ArgType::Call(call) => write!(f, "call %{}", call),
-            ArgType::Imm(val) => write!(f, "{}", val),
+            ArgKind::Sym(id) => write!(f, "%{}", id),
+            ArgKind::Temp(temp_reg) => write!(f, "%{}", temp_reg),
+            ArgKind::Call(call) => write!(f, "call %{}", call.name),
+            ArgKind::Imm(val) => write!(f, "{}", val),
         }
     }
 }
@@ -106,12 +105,12 @@ impl Dump for Alloca {
 pub struct Define {
     pub return_ty: ast::Type,
     pub name: String,
-    pub args: Option<Vec<(ArgType, ast::Type)>>,
+    pub args: Option<Vec<(ArgKind, ast::Type)>>,
 }
 
 impl Dump for Define {
     fn dump(&self) {
-        print!("    define {}, %{}", self.return_ty, self.name);
+        print!("define {}, %{}", self.return_ty, self.name);
         print!("(");
         if let Some(args) = &self.args {
             for arg in args {
@@ -130,7 +129,7 @@ impl Dump for Define {
 #[derive(Debug)]
 pub struct Ret {
     pub return_ty: ast::Type,
-    pub value: Option<ArgType>,
+    pub value: Option<ArgKind>,
 }
 
 impl Dump for Ret {
@@ -143,11 +142,46 @@ impl Dump for Ret {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Call {
     pub return_ty: ast::Type,
-    pub name: String,
-    pub args: Option<Vec<(ArgType, ast::Type)>>,
+    pub name: Rc<str>,
+    pub args: Option<Vec<(ArgKind, ast::Type)>>,
+}
+
+trait FromAstCall {
+    fn from_ast_call(call: &ast::Call, sym: &mut SymbolTable) -> Self;
+}
+impl FromAstCall for Call {
+    fn from_ast_call(call: &ast::Call, sym: &mut SymbolTable) -> Self {
+        let remapped_args = {
+            if let Some(args) = &call.args {
+                Some(
+                    args.iter()
+                        .map(|expr| {
+                            let argkind = match &expr.atom {
+                                ast::AtomKind::Ident(id) => ArgKind::Sym(id.name.to_string()),
+                                ast::AtomKind::Call(call) => {
+                                    ArgKind::Call(FromAstCall::from_ast_call(call, sym))
+                                }
+                                ast::AtomKind::IntLit(lit) => ArgKind::Imm(lit.val),
+                                ast::AtomKind::None => panic!("Unexpected None atomkind"),
+                            };
+                            (argkind, expr.ty.get().unwrap())
+                        })
+                        .collect(),
+                )
+            } else {
+                None
+            }
+        };
+
+        Call {
+            return_ty: call.return_ty.get().unwrap(),
+            name: sym.get(call.name).unwrap(),
+            args: remapped_args,
+        }
+    }
 }
 
 impl Dump for Call {
@@ -171,7 +205,7 @@ impl Dump for Call {
 #[derive(Debug)]
 pub struct Store {
     pub ty: ast::Type,
-    pub src: ArgType,
+    pub src: ArgKind,
     pub dest: String,
 }
 
@@ -184,8 +218,8 @@ impl Dump for Store {
 #[derive(Debug)]
 pub struct Expr {
     pub ty: ast::Type,
-    pub lhs: ArgType,
-    pub rhs: ArgType,
+    pub lhs: ArgKind,
+    pub rhs: ArgKind,
     pub op: lexer::Op,
     pub dest: String,
 }
@@ -226,7 +260,7 @@ impl Dump for Expr {
 
 #[derive(Debug)]
 pub struct Label {
-    pub name: String, // unconditional
+    pub name: String,
 }
 impl Dump for Label {
     fn dump(&self) {
@@ -236,21 +270,17 @@ impl Dump for Label {
 
 #[derive(Debug)]
 pub struct Br {
-    pub label: String,        // unconditional
+    pub label: String,
     pub flag: Option<String>, // %result
 }
 
 impl Dump for Br {
     fn dump(&self) {
-        println!(
-            "    br {}, {}",
-            self.label,
-            if let Some(flag) = &self.flag {
-                flag.clone()
-            } else {
-                "unconditional".to_string()
-            }
-        )
+        if let Some(flag) = &self.flag {
+            println!("    br {}, {}", self.label, flag);
+        } else {
+            println!("    br {}", self.label);
+        }
     }
 }
 
@@ -293,27 +323,28 @@ impl IrGenerator<'_> {
             let lvalue = self.visit_expr(lhs, outer_scp);
             let rvalue = self.visit_expr(rhs, outer_scp);
             let dest = format!("t{}", self.reg_counter);
-            self.reg_counter += 1; // NOTE: this
 
-            let lhs;
-            let rhs;
-            match lvalue.0 {
-                ast::AtomKind::Ident(id) => lhs = ArgType::Sym(id.name.to_string()),
-                ast::AtomKind::IntLit(value) => lhs = ArgType::Imm(value.val),
+            self.reg_counter += 1;
+
+            let lhs = match lvalue.0 {
+                ast::AtomKind::Ident(id) => ArgKind::Sym(id.name.to_string()),
+                ast::AtomKind::IntLit(value) => ArgKind::Imm(value.val),
                 ast::AtomKind::Call(call) => {
-                    lhs = ArgType::Call(self.sym.get(call.name).unwrap().to_string());
+                    // ArgType::Call(self.sym.get(call.name).unwrap().to_string())
+                    ArgKind::Call(Call::from_ast_call(&call, self.sym))
                 }
-                ast::AtomKind::None => lhs = ArgType::Temp(lvalue.1.as_ref().unwrap().clone()),
-            }
-            match rvalue.0 {
-                ast::AtomKind::Ident(id) => rhs = ArgType::Sym(id.name.to_string()),
-                ast::AtomKind::IntLit(value) => rhs = ArgType::Imm(value.val),
+                ast::AtomKind::None => ArgKind::Temp(lvalue.1.as_ref().unwrap().clone()),
+            };
+            let rhs = match rvalue.0 {
+                ast::AtomKind::Ident(id) => ArgKind::Sym(id.name.to_string()),
+                ast::AtomKind::IntLit(value) => ArgKind::Imm(value.val),
                 ast::AtomKind::Call(call) => {
-                    rhs = ArgType::Call(self.sym.get(call.name).unwrap().to_string());
+                    // ArgKind::Call(self.sym.get(call.name).unwrap().to_string())
+                    ArgKind::Call(Call::from_ast_call(&call, self.sym))
                 }
-                ast::AtomKind::None => rhs = ArgType::Temp(rvalue.1.as_ref().unwrap().clone()),
-            }
-            // opnode
+                ast::AtomKind::None => ArgKind::Temp(rvalue.1.as_ref().unwrap().clone()),
+            };
+
             outer_scp.ir.nodes.push(KlirNode::Expr(Expr {
                 ty: expr
                     .ty
@@ -348,14 +379,15 @@ impl IrGenerator<'_> {
         nodes.push(KlirNode::Store(Store {
             ty: decl.ty.get().expect("failed to get decl.ty at visit_decl"),
             src: if let Some(ref temp) = temp {
-                ArgType::Temp(temp.clone())
+                ArgKind::Temp(temp.clone())
             } else {
                 match atom {
-                    ast::AtomKind::Ident(id) => ArgType::Sym(id.name.to_string()),
-                    ast::AtomKind::IntLit(lit) => ArgType::Imm(lit.val),
+                    ast::AtomKind::Ident(id) => ArgKind::Sym(id.name.to_string()),
+                    ast::AtomKind::IntLit(lit) => ArgKind::Imm(lit.val),
                     ast::AtomKind::Call(call) => {
                         self.visit_fn_call(&call, outer_scp);
-                        ArgType::Call(self.sym.get(call.name).unwrap().to_string())
+                        // ArgType::Call(self.sym.get(call.name).unwrap().to_string())
+                        ArgKind::Call(Call::from_ast_call(&call, self.sym))
                     }
                     ast::AtomKind::None => panic!("unexpected None atomkind"),
                 }
@@ -376,17 +408,18 @@ impl IrGenerator<'_> {
         let mut nodes = std::mem::take(&mut outer_scp.ir.nodes);
         nodes.push(KlirNode::Call(Call {
             return_ty: ast::Type::Void,
-            name: String::from("_exit"),
+            name: "_exit".into(),
             args: Some(vec![(
                 if let Some(ref temp) = temp {
-                    ArgType::Temp(temp.clone())
+                    ArgKind::Temp(temp.clone())
                 } else {
                     match atom {
-                        ast::AtomKind::Ident(id) => ArgType::Sym(id.name.to_string()),
-                        ast::AtomKind::IntLit(val) => ArgType::Imm(val.val),
+                        ast::AtomKind::Ident(id) => ArgKind::Sym(id.name.to_string()),
+                        ast::AtomKind::IntLit(val) => ArgKind::Imm(val.val),
                         ast::AtomKind::Call(call) => {
                             self.visit_fn_call(&call, outer_scp);
-                            ArgType::Call(self.sym.get(call.name).unwrap().to_string())
+                            // ArgKind::Call(self.sym.get(call.name).unwrap().to_string())
+                            ArgKind::Call(Call::from_ast_call(&call, self.sym))
                         }
                         ast::AtomKind::None => panic!("unexpected None atomkind here"),
                     }
@@ -564,7 +597,7 @@ impl IrGenerator<'_> {
             name: fn_name_as_str,
             args: stmt_fn.args.as_ref().map(|args| {
                 args.iter()
-                    .map(|&(sym, ty)| (ArgType::Sym(sym.to_string()), ty))
+                    .map(|&(sym, ty)| (ArgKind::Sym(sym.to_string()), ty))
                     .collect()
             }),
         }));
@@ -573,26 +606,25 @@ impl IrGenerator<'_> {
     }
 
     fn visit_fn_call(&mut self, call: &ast::Call, outer_scp: &mut ProgScope) {
-        let fn_sym_as_str = self.sym.get(call.name).unwrap();
-        let fn_name_as_str = fn_sym_as_str.as_ref().to_string();
         let mut nodes = std::mem::take(&mut outer_scp.ir.nodes);
         nodes.push(KlirNode::Call(Call {
             return_ty: call.return_ty.get().unwrap(), // SAFETY: Guaranteed by Sema
-            name: fn_name_as_str,
+            name: self.sym.get(call.name).unwrap(),
             args: {
                 if let Some(call_args) = &call.args {
-                    let mut arg_list = Vec::<(ArgType, ast::Type)>::new();
+                    let mut arg_list = Vec::<(ArgKind, ast::Type)>::new();
                     for expr in call_args {
                         let (atom, temp) = self.visit_expr(expr, outer_scp);
                         let argkind = if let Some(temp) = temp {
-                            ArgType::Temp(temp)
+                            ArgKind::Temp(temp)
                         } else {
                             match atom {
-                                ast::AtomKind::Ident(id) => ArgType::Sym(id.name.to_string()),
-                                ast::AtomKind::IntLit(lit) => ArgType::Imm(lit.val),
+                                ast::AtomKind::Ident(id) => ArgKind::Sym(id.name.to_string()),
+                                ast::AtomKind::IntLit(lit) => ArgKind::Imm(lit.val),
                                 ast::AtomKind::Call(call) => {
                                     self.visit_fn_call(&call, outer_scp);
-                                    ArgType::Call(self.sym.get(call.name).unwrap().to_string())
+                                    // ArgKind::Call(self.sym.get(call.name).unwrap().to_string())
+                                    ArgKind::Call(Call::from_ast_call(&call, self.sym))
                                 }
                                 _ => panic!("Impossible for now"),
                             }
@@ -614,11 +646,11 @@ impl IrGenerator<'_> {
             value: if let Some(value) = &ret.value {
                 let (atom, temp) = self.visit_expr(value, outer_scp);
                 if let Some(temp) = temp {
-                    Some(ArgType::Temp(temp))
+                    Some(ArgKind::Temp(temp))
                 } else {
                     match atom {
-                        ast::AtomKind::Ident(id) => Some(ArgType::Sym(id.name.to_string())),
-                        ast::AtomKind::IntLit(lit) => Some(ArgType::Imm(lit.val)),
+                        ast::AtomKind::Ident(id) => Some(ArgKind::Sym(id.name.to_string())),
+                        ast::AtomKind::IntLit(lit) => Some(ArgKind::Imm(lit.val)),
                         _ => panic!("unexpected none atomkind found"),
                     }
                 }
@@ -634,6 +666,7 @@ impl IrGenerator<'_> {
         outer_scp.ir.nodes = nodes;
     }
 
+    // TODO: Fix function argument loading
     fn visit_scope(&mut self, stmts: &[UnionNode], outer_scp: &mut ProgScope) {
         for stmt in stmts {
             match stmt {
@@ -680,7 +713,9 @@ impl IrGenerator<'_> {
         self.visit_scope(&stmts, &mut ProgScope::default());
         println!("IR: \n{:#?}", self.ir.nodes);
         println!("IR TEXT DUMP:");
-        self.ir.dump();
+        for scp in &self.scopes {
+            scp.ir.dump();
+        }
         self.prog.stmts = stmts;
         Ok(())
     }

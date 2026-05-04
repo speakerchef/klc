@@ -1,7 +1,6 @@
 use std::fmt::Display;
 
 use crate::lexer::LocData;
-use thiserror::Error;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Severity {
@@ -25,7 +24,7 @@ impl Display for Severity {
     }
 }
 
-#[derive(Error, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct Diagnostic {
     severity: Severity,
     loc: LocData,

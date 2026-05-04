@@ -1,9 +1,10 @@
-let foo = 15;
-let bar = 39;
+fn main() -> void {
+    let foo = 15;
+    let bar = 39;
 
-if foo == 1 {
-    exit bar;
-} elif bar == 42 {
-    exit foo + 15;
+    if foo == 1 {
+        exit bar;
+    } elif bar == 39 {
+        exit 100;
+    }
 }
-exit 69;
