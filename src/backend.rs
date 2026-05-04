@@ -329,11 +329,24 @@ impl CodeGenerator<'_> {
     fn visit_store(&mut self, store: &Store, scp: &mut AsmScope) {
         match &store.src {
             ArgKind::Imm(val) => {
-                self.emit_typed_move(&store.ty, 8, *val, scp);
-                self.emit_typed_store(&store.ty, 8, None, scp);
-                scp.vars
-                    .insert(store.dest.clone(), (store.ty, scp.stackptr, false));
-                scp.stackptr += 8;
+                if let Some(&(dst_ty, dst_addr, is_arg)) = scp.vars.get(&store.dest) {
+                    if is_arg {
+                        self.emit_move_with_reg(&dst_ty, 8, dst_addr, scp);
+                        self.emit_typed_store(&dst_ty, 8, None, scp);
+                        scp.vars
+                            .insert(store.dest.clone(), (store.ty, scp.stackptr, false));
+                        scp.stackptr += 8;
+                    } else {
+                        self.emit_typed_move(&store.ty, 8, *val, scp);
+                        self.emit_typed_store(&store.ty, 8, Some(dst_addr), scp);
+                    }
+                } else {
+                    self.emit_typed_move(&store.ty, 8, *val, scp);
+                    self.emit_typed_store(&store.ty, 8, None, scp);
+                    scp.vars
+                        .insert(store.dest.clone(), (store.ty, scp.stackptr, false));
+                    scp.stackptr += 8;
+                }
             }
             ArgKind::Sym(name) | ArgKind::Temp(name) => {
                 let &(src_ty, src_addr, src_is_arg) = scp.vars.get(name).unwrap();
@@ -358,11 +371,25 @@ impl CodeGenerator<'_> {
             ArgKind::Call(call) => {
                 self.emit_load_call_args(call, scp);
                 scp.data.push_str(&format!("    bl      {}\n", call.name));
-                self.emit_move_with_reg(&store.ty, 8, 0, scp);
-                self.emit_typed_store(&store.ty, 8, None, scp);
-                scp.vars
-                    .insert(store.dest.clone(), (store.ty, scp.stackptr, false));
-                scp.stackptr += 8;
+                if let Some(&(ty, addr, is_arg)) = scp.vars.get(&store.dest) {
+                    if is_arg {
+                        self.emit_move_with_reg(&store.ty, 8, addr, scp);
+                        self.emit_typed_store(&store.ty, 8, None, scp);
+                        scp.vars
+                            .insert(store.dest.clone(), (store.ty, scp.stackptr, false));
+                        scp.stackptr += 8;
+                    } else {
+                        self.emit_move_with_reg(&store.ty, 8, 0, scp);
+                        self.emit_typed_store(&store.ty, 8, None, scp);
+                        scp.vars.insert(store.dest.clone(), (ty, addr, false));
+                    }
+                } else {
+                    self.emit_move_with_reg(&store.ty, 8, 0, scp);
+                    self.emit_typed_store(&store.ty, 8, None, scp);
+                    scp.vars
+                        .insert(store.dest.clone(), (store.ty, scp.stackptr, false));
+                    scp.stackptr += 8;
+                }
             }
         }
     }

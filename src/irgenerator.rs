@@ -512,19 +512,19 @@ impl IrGenerator<'_> {
             }
         }
 
+        // else body start
+        outer_scp.ir.nodes.push(KlirNode::Label(Label {
+            name: else_body_label.clone(),
+        }));
         // else body scope
         if let Some(maybeelse) = &stmt_if._else {
-            // else body start
-            outer_scp.ir.nodes.push(KlirNode::Label(Label {
-                name: else_body_label.clone(),
-            }));
             self.visit_scope(&maybeelse.scope.stmts, outer_scp);
-            // Jump to end
-            outer_scp.ir.nodes.push(KlirNode::Br(Br {
-                label: endif_label.clone(),
-                flag: None,
-            }));
         }
+        // Jump to end
+        outer_scp.ir.nodes.push(KlirNode::Br(Br {
+            label: endif_label.clone(),
+            flag: None,
+        }));
         // end start
         outer_scp.ir.nodes.push(KlirNode::Label(Label {
             name: endif_label.clone(),
@@ -697,7 +697,10 @@ impl IrGenerator<'_> {
 
         let stmts = std::mem::take(&mut self.prog.stmts);
         self.visit_scope(&stmts, &mut ProgScope::default());
-        println!("IR: \n{:#?}", self.ir.nodes);
+        // println!("IR NODES:");
+        // for scp in &self.scopes {
+        //     println!("{:#?}", scp.ir.nodes);
+        // }
         println!("IR TEXT DUMP:");
         for scp in &self.scopes {
             scp.ir.dump();
