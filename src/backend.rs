@@ -146,6 +146,11 @@ impl CodeGenerator {
         }
     }
     fn emit_operation(&mut self, op: &lexer::Op, ty: &ast::Type, scp: &mut AsmScope) {
+        let mut cmp = |strop: &str| {
+            scp.data.push_str("    cmp     x9, x10\n");
+            scp.data
+                .push_str(&format!("    cset    x8, {}\n", { strop }));
+        };
         match op {
             lexer::Op::Add => scp.data.push_str("    add     x8, x9, x10\n"),
             lexer::Op::Sub => scp.data.push_str("    sub     x8, x9, x10\n"),
@@ -169,48 +174,26 @@ impl CodeGenerator {
                 scp.data.push_str("    mul     x10, x8, x10\n");
                 scp.data.push_str("    sub     x8, x9, x10\n");
             }
-            lexer::Op::LgAnd => {
+            lexer::Op::LgAnd | lexer::Op::LgOr => {
+                let opcode = match op {
+                    lexer::Op::LgAnd => "and",
+                    _ => "orr",
+                };
                 scp.data.push_str("    cmp     x9, 0\n");
                 scp.data.push_str("    cset    x9, ne\n");
                 scp.data.push_str("    cmp     x10, 0\n");
                 scp.data.push_str("    cset    x10, ne\n");
-                scp.data.push_str("    and     x8, x9, x10\n");
+                scp.data
+                    .push_str(&format!("    {}      x8, x9, x10\n", opcode));
                 scp.data.push_str("    cmp     x8, 0\n");
                 scp.data.push_str("    cset    x8, ne\n");
             }
-            lexer::Op::LgOr => {
-                scp.data.push_str("    cmp     x9, 0\n");
-                scp.data.push_str("    cset    x9, ne\n");
-                scp.data.push_str("    cmp     x10, 0\n");
-                scp.data.push_str("    cset    x10, ne\n");
-                scp.data.push_str("    orr     x8, x9, x10\n");
-                scp.data.push_str("    cmp     x8, 0\n");
-                scp.data.push_str("    cset    x8, ne\n");
-            }
-            lexer::Op::Lt => {
-                scp.data.push_str("    cmp     x9, x10\n");
-                scp.data.push_str("    cset    x8, lt\n");
-            }
-            lexer::Op::Gt => {
-                scp.data.push_str("    cmp     x9, x10\n");
-                scp.data.push_str("    cset    x8, gt\n");
-            }
-            lexer::Op::Lte => {
-                scp.data.push_str("    cmp     x9, x10\n");
-                scp.data.push_str("    cset    x8, le\n");
-            }
-            lexer::Op::Gte => {
-                scp.data.push_str("    cmp     x9, x10\n");
-                scp.data.push_str("    cset    x8, ge\n");
-            }
-            lexer::Op::Eq => {
-                scp.data.push_str("    cmp     x9, x10\n");
-                scp.data.push_str("    cset    x8, eq\n");
-            }
-            lexer::Op::Neq => {
-                scp.data.push_str("    cmp     x9, x10\n");
-                scp.data.push_str("    cset    x8, ne\n");
-            }
+            lexer::Op::Lt => cmp("lt"),
+            lexer::Op::Gt => cmp("gt"),
+            lexer::Op::Lte => cmp("le"),
+            lexer::Op::Gte => cmp("ge"),
+            lexer::Op::Eq => cmp("eq"),
+            lexer::Op::Neq => cmp("ne"),
             lexer::Op::Pwr => {
                 scp.data.push_str("    cbnz    x10, BASE_CASE_1\n"); // deg == 0
                 scp.data.push_str("    mov     x8, 1\n");
