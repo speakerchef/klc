@@ -56,7 +56,6 @@ pub type FunctionMap = HashMap<
 pub struct CodeGenerator {
     scopes: Vec<ProgScope>,
     pub asm: String,
-    // fn_table: &'a HashMap<Rc<str>, CodegenFuncData>,
     fns_map: FunctionMap,
 }
 
@@ -280,18 +279,18 @@ impl CodeGenerator {
             }
             ast::Type::I32 | ast::Type::I64 | ast::Type::U64 | ast::Type::Usize => {
                 scp.data
-                    .push_str(&format!("    mov     w{}, {}\n", reg_idx, low));
+                    .push_str(&format!("    mov     x{}, {}\n", reg_idx, low));
                 if low_med != 0 {
                     scp.data
-                        .push_str(&format!("    movk    w{}, {}, lsl 16\n", reg_idx, low_med));
+                        .push_str(&format!("    movk    x{}, {}, lsl 16\n", reg_idx, low_med));
                 }
                 if high_med != 0 {
                     scp.data
-                        .push_str(&format!("    movk    w{}, {}, lsl 32\n", reg_idx, high_med));
+                        .push_str(&format!("    movk    x{}, {}, lsl 32\n", reg_idx, high_med));
                 }
                 if high != 0 {
                     scp.data
-                        .push_str(&format!("    movk    w{}, {}, lsl 48\n", reg_idx, high));
+                        .push_str(&format!("    movk    x{}, {}, lsl 48\n", reg_idx, high));
                 }
             }
             _ => todo!("Type not impl for `mov` yet"),
@@ -317,6 +316,60 @@ impl CodeGenerator {
                         self.emit_move_with_reg(&call.return_ty, argc, 0, scp);
                     }
                 }
+            }
+        }
+    }
+    fn eval_expr_operand(
+        &mut self,
+        argkind: &ArgKind,
+        ty: &ast::Type,
+        tempname: &str,
+        reg_idx: usize,
+        scp: &mut AsmScope,
+    ) -> String {
+        match argkind {
+            ArgKind::Sym(name) | ArgKind::Temp(name) => {
+                let &(ty, sym_addr, is_arg) = scp
+                    .vars
+                    .get(name)
+                    .unwrap_or_else(|| panic!("Error loading address for variable {name}"));
+                if is_arg {
+                    self.emit_move_with_reg(&ty, reg_idx, sym_addr, scp);
+                } else {
+                    self.emit_typed_load(&ty, reg_idx, sym_addr, scp);
+                }
+                self.emit_typed_store(&ty, reg_idx, None, scp);
+                let call_tmp_name = format!("{}.{}", tempname, scp.expr_tmp_counter);
+                scp.vars
+                    .insert(call_tmp_name.clone(), (ty, scp.stackptr, false));
+                scp.expr_tmp_counter += 1;
+                scp.stackptr += 8;
+                call_tmp_name
+            }
+            ArgKind::Call(call) => {
+                self.emit_load_call_args(call, scp);
+                scp.data.push_str(&format!("    bl      {}\n", call.name));
+                self.emit_typed_store(&ty, 0, None, scp);
+
+                let call_tmp_name = format!("{}.{}", tempname, scp.expr_tmp_counter);
+                scp.vars
+                    .insert(call_tmp_name.clone(), (call.return_ty, scp.stackptr, false));
+                scp.expr_tmp_counter += 1;
+                scp.stackptr += 8;
+                call_tmp_name
+            }
+            ArgKind::Imm(val) => {
+                scp.data
+                    .push_str(&format!("    mov     x{}, {}\n", reg_idx, val));
+                self.emit_typed_store(&ty, reg_idx, None, scp);
+                let call_tmp_name = format!("{}.{}", tempname, scp.expr_tmp_counter);
+                scp.vars.insert(
+                    call_tmp_name.clone(),
+                    (self.resolve_integer_resolution(*val), scp.stackptr, false),
+                );
+                scp.expr_tmp_counter += 1;
+                scp.stackptr += 8;
+                call_tmp_name
             }
         }
     }
@@ -390,94 +443,8 @@ impl CodeGenerator {
     }
     fn visit_expr(&mut self, expr: &Expr, scp: &mut AsmScope) {
         let mut reassign_addr = None;
-        let lhtmp = match &expr.lhs {
-            ArgKind::Sym(name) | ArgKind::Temp(name) => {
-                let &(ty, sym_addr, is_arg) = scp
-                    .vars
-                    .get(name)
-                    .unwrap_or_else(|| panic!("Error loading address for variable {name}"));
-                if is_arg {
-                    self.emit_move_with_reg(&ty, 9, sym_addr, scp);
-                } else {
-                    self.emit_typed_load(&ty, 9, sym_addr, scp);
-                }
-                self.emit_typed_store(&expr.ty, 9, None, scp);
-                let call_tmp_name = format!("lhtmp{}.", scp.expr_tmp_counter);
-                scp.vars
-                    .insert(call_tmp_name.clone(), (ty, scp.stackptr, false));
-                scp.expr_tmp_counter += 1;
-                scp.stackptr += 8;
-                call_tmp_name
-            }
-            ArgKind::Call(call) => {
-                self.emit_load_call_args(call, scp);
-                scp.data.push_str(&format!("    bl      {}\n", call.name));
-                self.emit_typed_store(&expr.ty, 0, None, scp);
-
-                let call_tmp_name = format!("lhtmp.{}", scp.expr_tmp_counter);
-                scp.vars
-                    .insert(call_tmp_name.clone(), (call.return_ty, scp.stackptr, false));
-                scp.expr_tmp_counter += 1;
-                scp.stackptr += 8;
-                call_tmp_name
-            }
-            ArgKind::Imm(val) => {
-                scp.data.push_str(&format!("    mov     x9, {}\n", val));
-                self.emit_typed_store(&expr.ty, 9, None, scp);
-                let call_tmp_name = format!("lhtmp{}.", scp.expr_tmp_counter);
-                scp.vars.insert(
-                    call_tmp_name.clone(),
-                    (self.resolve_integer_resolution(*val), scp.stackptr, false),
-                );
-                scp.expr_tmp_counter += 1;
-                scp.stackptr += 8;
-                call_tmp_name
-            }
-        };
-        let rhtmp = match &expr.rhs {
-            ArgKind::Sym(name) | ArgKind::Temp(name) => {
-                let &(ty, sym_addr, is_arg) = scp
-                    .vars
-                    .get(name)
-                    .unwrap_or_else(|| panic!("Error loading address for variable {name}"));
-                if is_arg {
-                    self.emit_move_with_reg(&ty, 10, sym_addr, scp);
-                } else {
-                    self.emit_typed_load(&ty, 10, sym_addr, scp);
-                }
-                self.emit_typed_store(&expr.ty, 10, None, scp);
-                let call_tmp_name = format!("lhtmp{}.", scp.expr_tmp_counter);
-                scp.vars
-                    .insert(call_tmp_name.clone(), (ty, scp.stackptr, false));
-                scp.expr_tmp_counter += 1;
-                scp.stackptr += 8;
-                call_tmp_name
-            }
-            ArgKind::Call(call) => {
-                self.emit_load_call_args(call, scp);
-                scp.data.push_str(&format!("    bl      {}\n", call.name));
-                self.emit_typed_store(&expr.ty, 0, None, scp);
-
-                let call_tmp_name = format!("rhtmp{}.", scp.expr_tmp_counter);
-                scp.vars
-                    .insert(call_tmp_name.clone(), (call.return_ty, scp.stackptr, false));
-                scp.expr_tmp_counter += 1;
-                scp.stackptr += 8;
-                call_tmp_name
-            }
-            ArgKind::Imm(val) => {
-                scp.data.push_str(&format!("    mov     x10, {}\n", val));
-                self.emit_typed_store(&expr.ty, 10, None, scp);
-                let call_tmp_name = format!("rhtmp{}.", scp.expr_tmp_counter);
-                scp.vars.insert(
-                    call_tmp_name.clone(),
-                    (self.resolve_integer_resolution(*val), scp.stackptr, false),
-                );
-                scp.expr_tmp_counter += 1;
-                scp.stackptr += 8;
-                call_tmp_name
-            }
-        };
+        let lhtmp = self.eval_expr_operand(&expr.lhs, &expr.ty, "lhstmp", 9, scp);
+        let rhtmp = self.eval_expr_operand(&expr.rhs, &expr.ty, "rhstmp", 10, scp);
         let mut ty_to_store = expr.ty;
         if let Some(&(ty, sym_addr, is_arg)) = scp.vars.get(&expr.dest)
             && !is_arg

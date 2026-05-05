@@ -89,11 +89,7 @@ impl Compiler {
                 "/tmp/knobc_asm_out.s",
             ])
             .output()?;
-
-        // let sdk_path_shower = Command::new("xcrun")
-        //     .args(vec!["--sdk", "macosx", "--show-sdk-path"])
-        //     .output()?;
-        // str::from_utf8(&sdk_path_shower.stdout)?.trim(),
+        println!("AS OUT: {}", str::from_utf8(&_assembler_out.stderr)?);
 
         let oname = format!("./{}", dst_name);
         let _linker_out = Command::new("ld")
