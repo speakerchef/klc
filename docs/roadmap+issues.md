@@ -1,7 +1,7 @@
 
 
 > IN PROGRESS
-- [ ] General code cleanup refactor
+- [ ] General code cleanup & refactor 
 
 > ISSUES
 - [ ] fix void function in expression panic error
@@ -33,5 +33,3 @@
 - [x] Emit epilogue before function return
 - [x] Allow fwd decls and assign missing values at discovery
 - [x] Refactor to function-like state where main is a function and not implicit. i.e. codegenerator structs for each individual function.
-
-

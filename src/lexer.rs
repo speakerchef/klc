@@ -224,7 +224,23 @@ impl Display for TokenType {
             TokenType::FloatLit(_) => write!(f, "FloatLit"),
             TokenType::VarIdent(_) => write!(f, "VarIdent"),
             TokenType::Null => write!(f, "Null"),
-            _ => write!(f, "Unknown Token"),
+            TokenType::Ti8 => write!(f, "i8"),
+            TokenType::Ti16 => write!(f, "i16"),
+            TokenType::Ti32 => write!(f, "i32"),
+            TokenType::Ti64 => write!(f, "i64"),
+            TokenType::Tu8 => write!(f, "u8"),
+            TokenType::Tchar => write!(f, "char"),
+            TokenType::Tbool => write!(f, "bool"),
+            TokenType::Tu16 => write!(f, "u16"),
+            TokenType::Tu32 => write!(f, "u32"),
+            TokenType::Tu64 => write!(f, "u64"),
+            TokenType::Tf32 => write!(f, "f32"),
+            TokenType::Tf64 => write!(f, "f64"),
+            TokenType::Tusize => write!(f, "usize"),
+            TokenType::Tstring => write!(f, "string"),
+            TokenType::Tvoid => write!(f, "void"),
+            TokenType::WhiteSpace => write!(f, "WhiteSpace"),
+            TokenType::NewLine => write!(f, "NewLine"),
         }
     }
 }
@@ -451,202 +467,55 @@ impl Lexer {
     }
 
     fn classify_token(&mut self, tok: &str, loc: LocData) -> Result<Token, Box<dyn Error>> {
+        let assign_tok = |ttype: TokenType| -> Token {
+            Token {
+                kind: ttype,
+                loc: LocData {
+                    line: loc.line,
+                    col: loc.col - tok.len(),
+                },
+            }
+        };
         match tok {
-            "i8" => Ok(Token {
-                kind: TokenType::Ti8,
-                loc: LocData {
-                    line: loc.line,
-                    col: loc.col - 2,
-                },
-            }),
-            "i16" => Ok(Token {
-                kind: TokenType::Ti16,
-                loc: LocData {
-                    line: loc.line,
-                    col: loc.col - 3,
-                },
-            }),
-            "i32" => Ok(Token {
-                kind: TokenType::Ti32,
-                loc: LocData {
-                    line: loc.line,
-                    col: loc.col - 3,
-                },
-            }),
-            "i64" => Ok(Token {
-                kind: TokenType::Ti64,
-                loc: LocData {
-                    line: loc.line,
-                    col: loc.col - 3,
-                },
-            }),
-            "u8" => Ok(Token {
-                kind: TokenType::Tu8,
-                loc: LocData {
-                    line: loc.line,
-                    col: loc.col - 2,
-                },
-            }),
-            "u16" => Ok(Token {
-                kind: TokenType::Tu16,
-                loc: LocData {
-                    line: loc.line,
-                    col: loc.col - 3,
-                },
-            }),
-            "u32" => Ok(Token {
-                kind: TokenType::Tu32,
-                loc: LocData {
-                    line: loc.line,
-                    col: loc.col - 3,
-                },
-            }),
-            "u64" => Ok(Token {
-                kind: TokenType::Tu64,
-                loc: LocData {
-                    line: loc.line,
-                    col: loc.col - 3,
-                },
-            }),
-            "usize" => Ok(Token {
-                kind: TokenType::Tusize,
-                loc: LocData {
-                    line: loc.line,
-                    col: loc.col - 5,
-                },
-            }),
-            "f32" => Ok(Token {
-                kind: TokenType::Tf32,
-                loc: LocData {
-                    line: loc.line,
-                    col: loc.col - 3,
-                },
-            }),
-            "f64" => Ok(Token {
-                kind: TokenType::Tf64,
-                loc: LocData {
-                    line: loc.line,
-                    col: loc.col - 3,
-                },
-            }),
-            "char" => Ok(Token {
-                kind: TokenType::Tchar,
-                loc: LocData {
-                    line: loc.line,
-                    col: loc.col - 4,
-                },
-            }),
-            "bool" => Ok(Token {
-                kind: TokenType::Tbool,
-                loc: LocData {
-                    line: loc.line,
-                    col: loc.col - 4,
-                },
-            }),
-            "string" => Ok(Token {
-                kind: TokenType::Tstring,
-                loc: LocData {
-                    line: loc.line,
-                    col: loc.col - 6,
-                },
-            }),
-            "void" => Ok(Token {
-                kind: TokenType::Tvoid,
-                loc: LocData {
-                    line: loc.line,
-                    col: loc.col - 4,
-                },
-            }),
-            "exit" => Ok(Token {
-                kind: TokenType::KwExit,
-                loc: LocData {
-                    line: loc.line,
-                    col: loc.col - 4,
-                },
-            }),
-            "let" => Ok(Token {
-                kind: TokenType::KwLet,
-                loc: LocData {
-                    line: loc.line,
-                    col: loc.col - 3,
-                },
-            }),
-            "mut" => Ok(Token {
-                kind: TokenType::KwMut,
-                loc: LocData {
-                    line: loc.line,
-                    col: loc.col - 3,
-                },
-            }),
-            "if" => Ok(Token {
-                kind: TokenType::KwIf,
-                loc: LocData {
-                    line: loc.line,
-                    col: loc.col - 2,
-                },
-            }),
-            "elif" => Ok(Token {
-                kind: TokenType::KwElif,
-                loc: LocData {
-                    line: loc.line,
-                    col: loc.col - 4,
-                },
-            }),
-            "else" => Ok(Token {
-                kind: TokenType::KwElse,
-                loc: LocData {
-                    line: loc.line,
-                    col: loc.col - 4,
-                },
-            }),
-            "while" => Ok(Token {
-                kind: TokenType::KwWhile,
-                loc: LocData {
-                    line: loc.line,
-                    col: loc.col - 5,
-                },
-            }),
-            "fn" => Ok(Token {
-                kind: TokenType::KwFn,
-                loc: LocData {
-                    line: loc.line,
-                    col: loc.col - 2,
-                },
-            }),
-            "return" => Ok(Token {
-                kind: TokenType::KwReturn,
-                loc: LocData {
-                    line: loc.line,
-                    col: loc.col - 6,
-                },
-            }),
+            "i8" => Ok(assign_tok(TokenType::Ti8)),
+            "i16" => Ok(assign_tok(TokenType::Ti16)),
+            "i32" => Ok(assign_tok(TokenType::Ti32)),
+            "i64" => Ok(assign_tok(TokenType::Ti64)),
+            "u8" => Ok(assign_tok(TokenType::Tu8)),
+            "u16" => Ok(assign_tok(TokenType::Tu16)),
+            "u32" => Ok(assign_tok(TokenType::Tu32)),
+            "u64" => Ok(assign_tok(TokenType::Tu64)),
+            "usize" => Ok(assign_tok(TokenType::Tusize)),
+            "f32" => Ok(assign_tok(TokenType::Tf32)),
+            "f64" => Ok(assign_tok(TokenType::Tf64)),
+            "char" => Ok(assign_tok(TokenType::Tchar)),
+            "bool" => Ok(assign_tok(TokenType::Tbool)),
+            "string" => Ok(assign_tok(TokenType::Tstring)),
+            "void" => Ok(assign_tok(TokenType::Tvoid)),
+            "exit" => Ok(assign_tok(TokenType::KwExit)),
+            "let" => Ok(assign_tok(TokenType::KwLet)),
+            "mut" => Ok(assign_tok(TokenType::KwMut)),
+            "if" => Ok(assign_tok(TokenType::KwIf)),
+            "elif" => Ok(assign_tok(TokenType::KwElif)),
+            "else" => Ok(assign_tok(TokenType::KwElse)),
+            "while" => Ok(assign_tok(TokenType::KwWhile)),
+            "fn" => Ok(assign_tok(TokenType::KwFn)),
+            "return" => Ok(assign_tok(TokenType::KwReturn)),
             symbol => {
                 if !symbol.is_empty() {
                     if symbol.chars().all(|c| c.is_ascii_digit()) {
-                        return Ok(Token {
-                            kind: TokenType::IntLit(symbol.parse::<i128>()?),
-                            loc,
-                        });
+                        return Ok(assign_tok(TokenType::IntLit(symbol.parse::<i128>()?)));
                     } else {
                         let sym_id = if let Some(existing_value) = self.sym.map.get(symbol) {
                             *existing_value
                         } else {
                             self.sym.push(symbol)
                         };
-
-                        return Ok(Token {
-                            kind: TokenType::VarIdent(sym_id),
-                            loc: LocData {
-                                line: loc.line,
-                                col: loc.col - symbol.len(),
-                            },
-                        });
+                        return Ok(assign_tok(TokenType::VarIdent(sym_id)));
                     }
                 }
-                Ok(Token {
-                    kind: TokenType::Null,
-                    loc: LocData { line: 0, col: 0 },
-                })
+                //NOTE: Add to diag
+                panic!("Unexpected Token");
             }
         }
     }

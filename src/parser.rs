@@ -672,7 +672,9 @@ impl Parser<'_> {
                     {
                         let call = self.parse_fn_call(sym, &mut loc_scp);
                         if !self.validate_tok(TokenType::Rparen) {
-                            self.diag.push_err(self.lex.peek_behind().unwrap().loc /* SAFETY: Guaranteed to exist */, "expected `)`");
+                            self.diag.push_err(
+                                self.lex.peek_behind().unwrap().loc /* SAFETY: Guaranteed to exist */,
+                                "expected `)`");
                         } else {
                             self.lex.next(); // eat ')'
                         }
