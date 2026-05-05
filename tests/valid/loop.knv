@@ -1,7 +1,7 @@
-mut counter = 0;
-while counter < 50 {
-    counter = counter + 1;
+fn main() -> void{
+    mut counter = 0;
+    while counter < 50 {
+        counter = counter + 1;
+    }
+    exit counter;
 }
-exit counter;
-
-

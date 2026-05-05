@@ -308,6 +308,14 @@ impl IrGenerator<'_> {
             label_counter: 0,
         }
     }
+
+    fn emit_br(&mut self, label: &str, flag: Option<String>, outer_scp: &mut ProgScope) {
+        outer_scp.ir.nodes.push(KlirNode::Br(Br {
+            label: label.to_string(),
+            flag,
+        }));
+    }
+
     #[must_use]
     fn visit_expr(
         &mut self,
@@ -430,32 +438,25 @@ impl IrGenerator<'_> {
         self.label_counter += 1;
 
         // Conditional branch to if body
-        outer_scp.ir.nodes.push(KlirNode::Br(Br {
-            label: if_body_label.clone(),
-            flag: Some(result),
-        }));
+        self.emit_br(&if_body_label, Some(result), outer_scp);
         // Branch to elif, else, or end
-        outer_scp.ir.nodes.push(KlirNode::Br(Br {
-            label: if !stmt_if._elif.is_empty() {
+        self.emit_br(
+            &if !stmt_if._elif.is_empty() {
                 init_elif_body_label.clone()
             } else if stmt_if._else.is_some() {
                 else_body_label.clone()
             } else {
                 endif_label.clone()
             },
-            flag: None,
-        }));
+            None,
+            outer_scp,
+        );
         // If body start
         outer_scp.ir.nodes.push(KlirNode::Label(Label {
             name: if_body_label.clone(),
         }));
-        // Body scope
         self.visit_scope(&stmt_if.scope.stmts, outer_scp);
-        // Jump to end
-        outer_scp.ir.nodes.push(KlirNode::Br(Br {
-            label: endif_label.clone(),
-            flag: None,
-        }));
+        self.emit_br(&endif_label, None, outer_scp);
 
         // First elif init
         if !stmt_if._elif.is_empty() {
@@ -475,35 +476,27 @@ impl IrGenerator<'_> {
             let elif_body_label = format!(".ELIF_BODY_{}", self.label_counter);
             self.label_counter += 1;
             let next_elif_body_label = format!(".ELIF_BODY_{}", self.label_counter);
-            // Conditional branch to elif body
-            outer_scp.ir.nodes.push(KlirNode::Br(Br {
-                label: elif_body_label.clone(),
-                flag: Some(elif_result),
-            }));
+            self.emit_br(&elif_body_label, Some(elif_result), outer_scp);
 
             //fallback Branch to other elifs, else, or end
-            outer_scp.ir.nodes.push(KlirNode::Br(Br {
-                label: if elif_collection.peek().is_some() {
+            self.emit_br(
+                &if elif_collection.peek().is_some() {
                     next_elif_body_label.clone()
                 } else if stmt_if._else.is_some() {
                     else_body_label.clone()
                 } else {
                     endif_label.clone()
                 },
-                flag: None,
-            }));
+                None,
+                outer_scp,
+            );
             // current elif body label
             outer_scp.ir.nodes.push(KlirNode::Label(Label {
                 name: elif_body_label.clone(),
             }));
             self.visit_scope(&elif.scope.stmts, outer_scp);
-            // Jump to end
-            outer_scp.ir.nodes.push(KlirNode::Br(Br {
-                label: endif_label.clone(),
-                flag: None,
-            }));
+            self.emit_br(&endif_label, None, outer_scp);
 
-            // other elifs labels
             if elif_collection.peek().is_some() {
                 outer_scp.ir.nodes.push(KlirNode::Label(Label {
                     name: next_elif_body_label,
@@ -515,16 +508,11 @@ impl IrGenerator<'_> {
         outer_scp.ir.nodes.push(KlirNode::Label(Label {
             name: else_body_label.clone(),
         }));
-        // else body scope
         if let Some(maybeelse) = &stmt_if._else {
             self.visit_scope(&maybeelse.scope.stmts, outer_scp);
         }
-        // Jump to end
-        outer_scp.ir.nodes.push(KlirNode::Br(Br {
-            label: endif_label.clone(),
-            flag: None,
-        }));
-        // end start
+        self.emit_br(&endif_label, None, outer_scp);
+
         outer_scp.ir.nodes.push(KlirNode::Label(Label {
             name: endif_label.clone(),
         }));
@@ -546,28 +534,17 @@ impl IrGenerator<'_> {
         } else {
             atom.to_string()
         };
-        // Conditional br to while loop
-        outer_scp.ir.nodes.push(KlirNode::Br(Br {
-            label: loop_while_label.clone(),
-            flag: Some(result),
-        }));
-        // unconditional br to end
-        outer_scp.ir.nodes.push(KlirNode::Br(Br {
-            label: end_while_label.clone(),
-            flag: None,
-        }));
+        self.emit_br(&loop_while_label, Some(result), outer_scp);
+        self.emit_br(&end_while_label, None, outer_scp);
+
         // start while loop
         outer_scp.ir.nodes.push(KlirNode::Label(Label {
             name: loop_while_label.clone(),
         }));
         self.visit_scope(&stmt_while.scope.stmts, outer_scp);
-        // unconditional br to start
-        outer_scp.ir.nodes.push(KlirNode::Br(Br {
-            label: start_while_label.clone(),
-            flag: None,
-        }));
+        self.emit_br(&start_while_label, None, outer_scp);
 
-        // end while loop
+        // end
         outer_scp.ir.nodes.push(KlirNode::Label(Label {
             name: end_while_label.clone(),
         }));

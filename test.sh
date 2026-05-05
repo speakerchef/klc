@@ -56,6 +56,7 @@ run_test power 128
 run_test fact 120
 run_test gcd 12
 run_test cond 100
+run_test loop 50
 run_test fn 100
 run_test expr 12
 
