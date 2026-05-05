@@ -1,9 +1,10 @@
 
 
 > IN PROGRESS
-- [ ] comments
+- [ ] General code cleanup refactor
 
 > ISSUES
+- [ ] fix void function in expression panic error
 - [ ] Parenthesized expressions with `sub` & `add` op `(1 + 2) - 4` fail
 - [ ] Infinite loop when function definition args are in reverse pair order (i.e. \<T>: \<name>)
 - [ ] panics when no return type is given to functions; issue with default-void setting logic
@@ -12,6 +13,7 @@
     - [ ] restructure semantically as variable declaration with optional `mut` binding
 
 >TODOS
+- [ ] comments
 - [ ] check `return` type against func declared return type
 - [ ] Allow expressions in function calls
 - [ ] No unary negation
@@ -20,6 +22,8 @@
 - [ ] add errors for too little arguments, too many arguments, expected arguments, unexpected arguments, in sema
 - [ ] Generate default behavior and expect main to be defined for program to start
 - [ ] Impl some version of a global scope (rn function-based scope)
+- [ ] Make errors consistent and more robust. ( **large** )
+- [x] add tests for expected error messages
 - [x] add test and run scripts
 - [x] Recursive functions result in segfault
 - [x] Impl `return` and default-emit `ret` after every function; values are optionally provided

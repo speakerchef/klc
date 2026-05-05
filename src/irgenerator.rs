@@ -691,7 +691,7 @@ impl IrGenerator<'_> {
         let arch = std::env::consts::ARCH;
         self.ir = KlirBlob::default();
         self.target = Target::from(arch);
-        dbg!(&self.target);
+        // dbg!(&self.target);
 
         let stmts = std::mem::take(&mut self.prog.stmts);
         self.visit_scope(&stmts, &mut ProgScope::default());

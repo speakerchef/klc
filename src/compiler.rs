@@ -81,27 +81,26 @@ impl Compiler {
             std::fs::write(format!("./{}.s", opts.dst_name.unwrap()), &backend.asm)
                 .expect("error during compilation!");
         }
-        let _assembler_out = Command::new("clang")
+        let _assembler_out = Command::new("as")
             .args(vec![
-                "-c",
                 "-g",
-                "-Wno-missing-sysroot",
                 "-o",
                 "/tmp/knobc_asm_out.o",
                 "/tmp/knobc_asm_out.s",
             ])
             .output()?;
 
-        let sdk_path_shower = Command::new("xcrun")
-            .args(vec!["--sdk", "macosx", "--show-sdk-path"])
-            .output()?;
+        // let sdk_path_shower = Command::new("xcrun")
+        //     .args(vec!["--sdk", "macosx", "--show-sdk-path"])
+        //     .output()?;
+        // str::from_utf8(&sdk_path_shower.stdout)?.trim(),
 
         let oname = format!("./{}", dst_name);
         let _linker_out = Command::new("ld")
             .args(vec![
                 "-lSystem",
                 "-syslibroot",
-                str::from_utf8(&sdk_path_shower.stdout)?.trim(),
+                &std::env::var("SDKROOT")?,
                 "-o",
                 if matches!(opts.mode, CompilerMode::Build) {
                     &oname

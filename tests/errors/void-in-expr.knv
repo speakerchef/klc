@@ -1,0 +1,7 @@
+fn main() -> void {
+    let x = noop();
+    exit x;
+}
+
+fn noop() -> void {
+}

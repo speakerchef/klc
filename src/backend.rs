@@ -691,7 +691,7 @@ impl CodeGenerator {
             self.asm.push_str(&scp.data);
         }
         self.emit_metadata(md);
-        println!("ASSEMBLY: \n{}", self.asm);
+        // println!("ASSEMBLY: \n{}", self.asm);
         Ok(())
     }
 }

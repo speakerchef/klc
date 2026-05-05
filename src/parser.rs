@@ -440,7 +440,7 @@ impl Parser<'_> {
                 None
             }
         } else {
-            return None;
+            None
         }
     }
 
@@ -574,8 +574,7 @@ impl Parser<'_> {
                 }
                 self.lex.next(); // eat return type
             } else {
-                self.diag
-                    .push_err(tok.loc, &format!("expected function return type",));
+                self.diag.push_err(tok.loc, "expected function return type");
             }
         } else {
             stmt_fn.return_ty = Type::Void;
