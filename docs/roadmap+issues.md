@@ -1,10 +1,8 @@
 
 
 > IN PROGRESS
-- [ ] General code cleanup & refactor 
 
 > ISSUES
-- [ ] fix void function in expression panic error
 - [ ] Parenthesized expressions with `sub` & `add` op `(1 + 2) - 4` fail
 - [ ] Infinite loop when function definition args are in reverse pair order (i.e. \<T>: \<name>)
 - [ ] panics when no return type is given to functions; issue with default-void setting logic
@@ -23,11 +21,14 @@
 - [ ] Generate default behavior and expect main to be defined for program to start
 - [ ] Impl some version of a global scope (rn function-based scope)
 - [ ] Make errors consistent and more robust. ( **large** )
+
+> DONE
+- [x] fix void function in expression panic error
 - [x] add tests for expected error messages
 - [x] add test and run scripts
 - [x] Recursive functions result in segfault
 - [x] Impl `return` and default-emit `ret` after every function; values are optionally provided
-- [x] figure out using functions in expressions (if not void, load values from [x | w]0)
+- [x] figure out using functions in expressions (if not void, load values from \[x \| w]0)
 - [x] emit `ret` by default even if no return stmt exists
 - [x] Emit prologue and epilogue for every function
 - [x] Emit epilogue before function return

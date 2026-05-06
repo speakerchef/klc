@@ -1,5 +1,5 @@
 fn main() -> void {
-    let x = noop();
+    let x = noop() + 6;
     exit x;
 }
 

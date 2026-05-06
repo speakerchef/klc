@@ -1,5 +1,12 @@
 #!/bin/sh
-cargo build --release
+#check if any build errors
+fin=Finished
+out=$(cargo build --release 2>&1)
+echo "$out"
+if [[ "$out" != *"$fin"* ]]; then
+    printf "run: \n%s" "$out"
+    exit 1
+fi
 
 KNOBC=~/Programming/knobc/target/release/knobc
 KNV_DIR=~/Programming/knobc/tests/valid
@@ -70,7 +77,7 @@ run_err_test missing-semi "expected \`;\`"
 run_err_test extraneous-rparen "extraneous closing"
 run_err_test bare-elif "expected accompanying"
 run_err_test bare-else "expected accompanying"
-run_err_test void-in-expr "returns type"
+run_err_test void-in-expr "returns type \`void\`"
 
 rm $KNOBC
 

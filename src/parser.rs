@@ -186,19 +186,20 @@ impl Parser<'_> {
         }
 
         // check operand types
-        if let Some(operand) = self.lex.peek() {
+        if let Some(operand) = &self.lex.peek() {
             match operand.kind {
                 TokenType::IntLit(val) => {
                     lhs = Some(ast::Expr::default());
+                    lhs.as_mut().unwrap().loc = operand.loc;
                     lhs.as_mut().unwrap().atom = AtomKind::IntLit(ast::IntLit {
                         val,
                         loc: operand.loc,
                     });
-                    lhs.as_mut().unwrap().loc = operand.loc;
                     self.lex.next(); // eat literal
                 }
                 TokenType::VarIdent(sym) => {
                     lhs = Some(ast::Expr::default());
+                    lhs.as_mut().unwrap().loc = operand.loc;
                     if let Some(tok) = self.lex.peek_ahead()
                         && matches!(tok.kind, TokenType::Lparen)
                     {
@@ -209,6 +210,9 @@ impl Parser<'_> {
                         } else {
                             self.lex.next(); // eat ')'
                         }
+                        lhs.as_mut().unwrap().ty.set(Some(
+                            call.return_ty.get().unwrap_or_else(|| ast::Type::Void),
+                        ));
                         lhs.as_mut().unwrap().atom = AtomKind::Call(call);
                     } else {
                         lhs.as_mut().unwrap().atom = AtomKind::Ident(ast::Ident {
@@ -660,6 +664,7 @@ impl Parser<'_> {
                             ast::VarDecl::default()
                         };
                     let sym = decl.name;
+                    println!("Var Decl LocData: {}", decl.loc);
                     let rc = Rc::new(decl);
 
                     loc_scp.vars.insert(sym, Rc::clone(&rc));

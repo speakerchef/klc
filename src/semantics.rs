@@ -3,7 +3,6 @@ use crate::{
     diagnostics::DiagHandler,
     lexer::{self},
 };
-use core::panic;
 use std::{collections::HashMap, error::Error, process::exit, rc::Rc};
 
 type SemaScope = HashMap<lexer::Symbol, ast::VarType>;
@@ -159,8 +158,8 @@ impl Sema<'_> {
             ast::AtomKind::None => {
                 expr.ty
                     .set(if let (Some(lhs), Some(rhs)) = (&expr.lhs, &expr.rhs) {
-                        let lty = lhs.ty.get().unwrap();
-                        let rty = rhs.ty.get().unwrap();
+                        let lty = lhs.ty.get().unwrap_or_default();
+                        let rty = rhs.ty.get().unwrap_or_default();
                         let mut type_to_return = lty; // default to lhs type
 
                         /* Check if we can coerce both values
@@ -170,9 +169,9 @@ impl Sema<'_> {
                             && !lty.is_digit_convertible_to(&rty)
                             && !rty.is_digit_convertible_to(&lty)
                         {
-                            type_to_return = ast::Type::default();
+                            type_to_return = ast::Type::Void;
                             self.diag.push_err(
-                                lhs.loc,
+                                expr.loc,
                                 &format!(
                                     "incompatible types found in expression `{}` & `{}`",
                                     lty, rty
@@ -225,7 +224,13 @@ impl Sema<'_> {
             } else if inferred_type.is_digit_convertible_to(&ast::Type::I64) {
                 decl.ty.set(Some(ast::Type::I64));
             } else {
-                panic!("Could not set default type");
+                self.diag.push_err(
+                    decl.loc,
+                    &format!(
+                        "incompatible types found in variable declaration `{}`",
+                        inferred_type
+                    ),
+                );
             }
         }
         let decl_infer_ty = decl.ty.get().unwrap_or_else(|| {
