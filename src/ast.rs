@@ -106,25 +106,26 @@ impl Type {
     }
 }
 
-impl From<TokenType> for Type {
-    fn from(value: TokenType) -> Self {
+impl TryFrom<TokenType> for Type {
+    type Error = String;
+    fn try_from(value: TokenType) -> Result<Type, String> {
         match value {
-            TokenType::Ti8 => Type::I8,
-            TokenType::Tu8 => Type::U8,
-            TokenType::Ti16 => Type::I16,
-            TokenType::Tu16 => Type::U16,
-            TokenType::Ti32 => Type::I32,
-            TokenType::Tu32 => Type::U32,
-            TokenType::Ti64 => Type::I64,
-            TokenType::Tu64 => Type::U64,
-            TokenType::Tf32 => Type::F32,
-            TokenType::Tf64 => Type::F64,
-            TokenType::Tusize => Type::Usize,
-            TokenType::Tchar => Type::Char,
-            TokenType::Tstring => Type::String,
-            TokenType::Tbool => Type::Bool,
-            TokenType::Tvoid => Type::Void,
-            _ => Type::None,
+            TokenType::Ti8 => Ok(Type::I8),
+            TokenType::Tu8 => Ok(Type::U8),
+            TokenType::Ti16 => Ok(Type::I16),
+            TokenType::Tu16 => Ok(Type::U16),
+            TokenType::Ti32 => Ok(Type::I32),
+            TokenType::Tu32 => Ok(Type::U32),
+            TokenType::Ti64 => Ok(Type::I64),
+            TokenType::Tu64 => Ok(Type::U64),
+            TokenType::Tf32 => Ok(Type::F32),
+            TokenType::Tf64 => Ok(Type::F64),
+            TokenType::Tusize => Ok(Type::Usize),
+            TokenType::Tchar => Ok(Type::Char),
+            TokenType::Tstring => Ok(Type::String),
+            TokenType::Tbool => Ok(Type::Bool),
+            TokenType::Tvoid => Ok(Type::Void),
+            _ => Err("unable to derive Type from received TokenType".to_string()),
         }
     }
 }

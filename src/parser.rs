@@ -1,9 +1,9 @@
-use std::{cell::Cell, collections::HashMap, error::Error, process::exit, rc::Rc};
+use std::{cell::Cell, collections::HashMap, process::exit, rc::Rc};
 
 use crate::{
     ast::{self, AtomKind, StmtReturn, Type, VarType},
     diagnostics::DiagHandler,
-    lexer::{self, LocData, Op, Symbol, Token, TokenType, TokenVec},
+    lexer::{Op, Symbol, Token, TokenType, TokenVec},
     traits::Iter,
 };
 
@@ -91,42 +91,31 @@ impl Parser<'_> {
             if let Some(&colon) = self.toks.peek()
                 && matches!(colon.kind, TokenType::Colon)
             {
-                let default = Token::default();
-                let tytok = self.toks.next().unwrap_or(&default); // eat ':'
-                if !matches!(
-                    tytok.kind,
-                    TokenType::Ti8
-                        | TokenType::Ti16
-                        | TokenType::Ti32
-                        | TokenType::Ti64
-                        | TokenType::Tu8
-                        | TokenType::Tu16
-                        | TokenType::Tu32
-                        | TokenType::Tu64
-                        | TokenType::Tf32
-                        | TokenType::Tf64
-                        | TokenType::Tusize
-                        | TokenType::Tchar
-                        | TokenType::Tstring
-                        | TokenType::Tbool
-                ) {
-                    self.diag.push_err(
-                        tytok.loc,
-                        &format!("expected valid type specifier; got {} instead", tytok.kind),
-                    );
-                } else {
-                    decl.decl_type = Some(Type::from(tytok.kind));
+                if let Some(tytok) = self.toks.next() {
+                    decl.decl_type = match Type::try_from(tytok.kind) {
+                        Ok(ty) => Some(ty),
+                        Err(_) => {
+                            self.diag.push_err(
+                                tytok.loc,
+                                &format!("expected valid Type; got `{}` instead", tytok.kind),
+                            );
+                            None
+                        }
+                    };
+                    if !self.validate_tok(TokenType::Op(Op::Asgn)) {
+                        self.toks.next(); // eat typename
+                    }
                 }
-                self.toks.next(); // eat typename
             }
+
             if !self.validate_tok(TokenType::Op(Op::Asgn)) {
                 self.diag
                     .push_err(t.loc, "expected `=` after variable declaration");
+            } else {
+                self.toks.next(); // eat '='
             }
 
-            self.toks.next(); // eat '='
             decl.value = Box::new(if let Some(expr) = self.parse_expr(0., outer_scp) {
-                self.check_semi(self.toks.peek_behind().unwrap().loc);
                 expr
             } else {
                 self.diag
@@ -156,10 +145,8 @@ impl Parser<'_> {
             self.toks.next(); // eat '('
             lhs = self.parse_expr(0., outer_scp);
             if !self.validate_tok(TokenType::Rparen) {
-                self.diag.push_err(
-                    self.toks.peek().unwrap_or(&Token::default()).loc,
-                    "expected closing `)`",
-                );
+                self.diag
+                    .push_err(self.toks.peek_behind().unwrap().loc, "expected closing `)`");
             } else {
                 self.toks.next(); // eat ')'
             }
@@ -201,12 +188,6 @@ impl Parser<'_> {
                         && matches!(tok.kind, TokenType::Lparen)
                     {
                         let call = self.parse_fn_call(sym, outer_scp);
-                        let call_loc = call.loc;
-                        if !self.validate_tok(TokenType::Rparen) {
-                            self.diag.push_err(call_loc, "expected `)`");
-                        } else {
-                            self.toks.next(); // eat ')'
-                        }
                         lhs.as_mut().unwrap().ty.set(Some(
                             call.return_ty.get().unwrap_or_else(|| ast::Type::Void),
                         ));
@@ -283,27 +264,9 @@ impl Parser<'_> {
         lhs
     }
 
-    fn check_semi(&mut self, loc: LocData) {
-        match self
-            .toks
-            .peek()
-            .unwrap_or(&Token {
-                kind: TokenType::Null,
-                loc,
-            })
-            .kind
-        {
-            TokenType::Semi => (),
-            TokenType::Rparen => self.diag.push_err(loc, "extraneous closing `)`"),
-            TokenType::Rcurly => self.diag.push_err(loc, "extraneous closing `}`"),
-            _ => self.diag.push_err(loc, "expected `;`"),
-        }
-    }
-
     fn parse_stmt_exit(&mut self, outer_scp: &mut ast::Scope) -> ast::StmtExit {
         let expr = self.parse_expr(0., outer_scp);
         let loc = self.toks.peek_behind().unwrap().loc;
-        self.check_semi(loc);
         ast::StmtExit {
             exit_code: Box::new(expr.unwrap_or_else(|| {
                 self.diag
@@ -420,13 +383,21 @@ impl Parser<'_> {
             return None;
         }
         if let (Some(&argname), Some(&ty)) = (self.toks.peek_behind(), self.toks.peek_ahead()) {
-            if ty.kind.is_type_token() && matches!(argname.kind, TokenType::VarIdent(_)) {
+            if matches!(argname.kind, TokenType::VarIdent(_)) {
                 if let TokenType::VarIdent(sym) = argname.kind {
                     self.toks.next(); // eat `:`
                     self.toks.next(); // eat type
-                    Some((sym, Type::from(ty.kind)))
+                    match Type::try_from(ty.kind) {
+                        Ok(ty) => Some((sym, ty)),
+                        Err(_) => {
+                            self.diag.push_err(
+                                self.toks.peek_behind().unwrap().loc,
+                                &format!("expected Type; got `{}`", ty.kind),
+                            );
+                            None
+                        }
+                    }
                 } else {
-                    // self.lex.next(); // eat `:`
                     self.diag.push_err(
                         self.toks.peek_behind().unwrap().loc,
                         &format!("expected `VarIdent`; got `{}`", argname.kind),
@@ -436,7 +407,7 @@ impl Parser<'_> {
             } else {
                 self.diag.push_err(
                     self.toks.peek_behind().unwrap().loc,
-                    "expected valid `Type, Identifier` pair for function arguments",
+                    "expected valid `Type: Identifier` pair for function arguments",
                 );
                 None
             }
@@ -454,18 +425,9 @@ impl Parser<'_> {
         }
         let mut def_args = Vec::<(Symbol, Type)>::new();
         let mut call_args = Vec::<ast::Expr>::new();
-        let def = lexer::Token::default();
         if is_call {
             loop {
-                let loc = self
-                    .toks
-                    .peek()
-                    .unwrap_or_else(|| {
-                        self.diag
-                            .push_err(self.toks.peek_behind().unwrap().loc, "expected token");
-                        &def
-                    })
-                    .loc;
+                let loc = self.toks.peek_behind().unwrap().loc; //SAFETY: Guaranteed by definition
                 if let Some(expr) = self.parse_expr(0., outer_scp) {
                     call_args.push(expr);
                 }
@@ -481,25 +443,15 @@ impl Parser<'_> {
             }
         } else {
             loop {
-                let loc = self
-                    .toks
-                    .peek()
-                    .unwrap_or_else(|| {
-                        self.diag
-                            .push_err(self.toks.peek_behind().unwrap().loc, "expected token");
-                        &def
-                    })
-                    .loc;
+                let loc = self.toks.peek_behind().unwrap().loc;
                 if let Some(packed_arg) = self.parse_argument_pair() {
                     def_args.push(packed_arg);
                 }
-                // self.lex.next(); // eat type
                 if self.validate_tok(TokenType::Rparen) {
                     break;
                 } else if !self.validate_tok(TokenType::Comma) {
                     self.diag
                         .push_err(loc, "expected `,` between function arguments");
-                    // break;
                 } else {
                     self.toks.next(); //eat ',' & advance to next type
                 }
@@ -557,28 +509,36 @@ impl Parser<'_> {
         }
         self.toks.next(); // eat ')'
 
-        self.toks.next(); // move ahead to read behind
-        if let Some(tok) = self.toks.peek_behind()
+        // self.toks.next();
+        let mut explicit_type = false;
+        if let Some(tok) = self.toks.peek()
             && let TokenType::Op(op) = tok.kind
+            // check for '->'
             && matches!(op, Op::ThinArrow)
-        // check for '->'
         {
-            // self.lex.next(); // eat '->'
-            if let Some(&tok) = self.toks.peek() {
-                if tok.kind.is_type_token() {
-                    stmt_fn.return_ty = Type::from(tok.kind);
-                } else {
-                    self.diag.push_err(
-                        tok.loc,
-                        &format!("expected function return type; received `{}`", tok.kind),
-                    );
-                }
-                self.toks.next(); // eat return type
-            } else {
-                self.diag.push_err(tok.loc, "expected function return type");
-            }
+            explicit_type = true;
+            self.toks.next();
         } else {
             stmt_fn.return_ty = Type::Void;
+        }
+        if explicit_type {
+            if let Some(&tok) = self.toks.peek() {
+                match Type::try_from(tok.kind) {
+                    Err(_) => self.diag.push_err(
+                        tok.loc,
+                        &format!("expected function return type; received `{}`", tok.kind),
+                    ),
+                    Ok(ty) => {
+                        stmt_fn.return_ty = ty;
+                        self.toks.next(); // eat return type
+                    }
+                }
+            } else {
+                self.diag.push_err(
+                    self.toks.peek_behind().unwrap().loc,
+                    "expected function return type",
+                );
+            }
         }
         println!("Function return type: {}", stmt_fn.return_ty);
 
@@ -628,6 +588,14 @@ impl Parser<'_> {
         } else {
             None
         };
+        if !self.validate_tok(TokenType::Rparen) {
+            self.diag.push_err(
+                self.toks.peek_behind().unwrap().loc, /* SAFETY: Guaranteed to exist */
+                "expected `)`",
+            );
+        } else {
+            self.toks.next(); // eat ')'
+        }
         call
     }
 
@@ -661,7 +629,6 @@ impl Parser<'_> {
                             ast::VarDecl::default()
                         };
                     let sym = decl.name;
-                    println!("Var Decl LocData: {}", decl.loc);
                     let rc = Rc::new(decl);
 
                     loc_scp.vars.insert(sym, Rc::clone(&rc));
@@ -673,13 +640,6 @@ impl Parser<'_> {
                         && matches!(tok.kind, TokenType::Lparen)
                     {
                         let call = self.parse_fn_call(sym, &mut loc_scp);
-                        if !self.validate_tok(TokenType::Rparen) {
-                            self.diag.push_err(
-                                self.toks.peek_behind().unwrap().loc /* SAFETY: Guaranteed to exist */,
-                                "expected `)`");
-                        } else {
-                            self.toks.next(); // eat ')'
-                        }
                         outer_scp.stmts.push(ast::UnionNode::Call(call));
                     } else {
                         let mut decl = self.parse_var_decl(tok, &mut loc_scp).unwrap();
@@ -737,7 +697,8 @@ impl Parser<'_> {
                     outer_scp.stmts.push(ast::UnionNode::Scope(scp));
                 }
                 _ => {
-                    eprintln!("Unhandled Type: {:?}", tok);
+                    self.diag
+                        .push_err(tok.loc, &format!("extraneous `{}`", tok.kind));
                     self.toks.next();
                 }
             }

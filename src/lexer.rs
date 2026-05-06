@@ -102,7 +102,7 @@ impl Display for Symbol {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TokenType {
     Ti8,
     Ti16,
@@ -144,9 +144,6 @@ pub enum TokenType {
     BoolLit(bool),
     FloatLit(f64),
     VarIdent(Symbol),
-
-    #[default]
-    Null,
 
     WhiteSpace,
     NewLine,
@@ -208,22 +205,21 @@ impl Display for TokenType {
             TokenType::KwWhile => write!(f, "KwWhile"),
             TokenType::KwExit => write!(f, "KwExit"),
             TokenType::Op(op) => write!(f, "{}", op),
-            TokenType::Semi => write!(f, "Semi"),
-            TokenType::Colon => write!(f, "Color"),
-            TokenType::Lparen => write!(f, "Lparen"),
-            TokenType::Rparen => write!(f, "Rparen"),
-            TokenType::Lcurly => write!(f, "Lcurly"),
-            TokenType::Rcurly => write!(f, "Rcurly"),
-            TokenType::Lsquare => write!(f, "Lsquare"),
-            TokenType::Rsquare => write!(f, "Rsquare"),
-            TokenType::Comma => write!(f, "Comma"),
+            TokenType::Semi => write!(f, ";"),
+            TokenType::Colon => write!(f, ":"),
+            TokenType::Lparen => write!(f, "("),
+            TokenType::Rparen => write!(f, ")"),
+            TokenType::Lcurly => write!(f, "{{"),
+            TokenType::Rcurly => write!(f, "}}"),
+            TokenType::Lsquare => write!(f, "["),
+            TokenType::Rsquare => write!(f, "]"),
+            TokenType::Comma => write!(f, ","),
             TokenType::IntLit(_) => write!(f, "IntLit"),
             TokenType::CharLit(_) => write!(f, "CharLit"),
             TokenType::ByteLit(_) => write!(f, "ByteLit"),
             TokenType::BoolLit(_) => write!(f, "BoolLit"),
             TokenType::FloatLit(_) => write!(f, "FloatLit"),
             TokenType::VarIdent(_) => write!(f, "VarIdent"),
-            TokenType::Null => write!(f, "Null"),
             TokenType::Ti8 => write!(f, "i8"),
             TokenType::Ti16 => write!(f, "i16"),
             TokenType::Ti32 => write!(f, "i32"),
@@ -284,7 +280,7 @@ impl Display for LocData {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct Token {
     pub kind: TokenType,
     pub loc: LocData,

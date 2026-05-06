@@ -19,11 +19,11 @@ Uses `.knv` as the file extension.
 Source → Lexer → Parser → AST → Type-Checking / Semantic Analysis → Typed-AST → MIR → Optimization Pass(es) → Backend → Assembly Codegen → Link Runtime → Executable
 ```
 
-- **Lexer/Tokenizer** — tokenizes `.knv` source into a stream of typed tokens
-- **Parser** — Pratt-Parsing with precedence climbing for expressions and Recursive-Descent parsing for the rest, producing an untyped-AST.
-- Type-Checking and Semantic Analysis that resolves types and mutates the untyped-AST into a typed-AST. Semantic errors are also evaluated here.
-- Typed-AST is walked and Knob-MIR is emitted for each node/operation/etc...
-- Optimization (Later scope): Will analyze the IR for patterns to exploit and optimize
+- **Lexer/Tokenizer**: tokenizes `.knv` source into a stream of typed tokens
+- **Parser**: Pratt-Parsing with precedence climbing for expressions and Recursive-Descent parsing for the rest, producing an untyped-AST.
+- **Type-Checking** and **Semantic Analysis** that resolves types and mutates the untyped-AST into a typed-AST. Semantic errors are also evaluated here.
+- **KLIR-Generation**: Typed-AST is walked and KLIR is emitted for each node/operation/etc...
+- **Optimization (Later scope)**: Will analyze the IR for patterns to exploit and optimize
 - **Codegen** — Currently targeting only AArch64 (Apple Silicon / macOS Darwin ABI). (x86_64 support in the future). No LLVM or other backends/deps.
 ---
 ## Language features
@@ -55,7 +55,7 @@ Source → Lexer → Parser → AST → Type-Checking / Semantic Analysis → Ty
 | `fn` | Function declaration |
 | `return` | return to caller from callee |
 
-### Operators (so far)
+### Operators & Symbols (so far)
 
 | Category | Operators | Notes |
 |----------|-----------|-------|
@@ -66,22 +66,13 @@ Source → Lexer → Parser → AST → Type-Checking / Semantic Analysis → Ty
 | Bitwise | `&` `\|` `^` | AND, OR, XOR |
 | Bit Shift | `<<` `>>` | LSL, LSR |
 | Unary | `-` | negation |
+| General | `->` | Denotes an explicit return type for function definitions |
+| Comments | `//` `/* */` | Line comments and Block comments |
 | Operate-Assign | `+=` `-=` `*=` `/=` `%=` `**=` `&=` `\|=` `<<=` `>>=` | Combine operation and assignment |
 
 
 >[!WARNING] 
 > The below is stale from the original C++ codebase - will update as things move
-
-### Other Features
-- Parenthesized expressions with correct grouping: `(a + b) * (c - d)`
-- Scoping with nested blocks and proper variable resolution
-- Variables from outer scopes are visible in inner scopes
-- Local variables are inaccessible outside their scope
-- Nested if/elif/else with arbitrary depth
-- While loops with mutable state
-- Function declarations and calls with typed arguments
-- Calls useable inside expressions and as arguments to other calls
-
 ---
 ## Build & Generate Executable
 
@@ -116,10 +107,8 @@ echo $?
 
 ---
 
-## Roadmap
-
+## Long-term Roadmap
 - [ ] String literals
-- [ ] Functions
 - [ ] Floating point support (Harder than you think)
 - [ ] Standard library functions like print()
 - [ ] Loop optimizations

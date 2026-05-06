@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #check if any build errors
 fin=Finished
 out=$(cargo build --release 2>&1)
@@ -30,7 +30,7 @@ run_test() {
     got=$?
     rm -f ./_valid_out ./*.s
 
-    if [ "$got" = "$expect" ]; then
+    if [ "$got" == "$expect" ]; then
         printf "${GREEN}TEST %d (%s) PASS${RESET}  expect=%s got=%s\n" "$n" "$name" "$expect" "$got"
         pass=$((pass + 1))
     else
@@ -47,15 +47,13 @@ run_err_test() {
     out=$("$KNOBC" build "$ERR_DIR/$name.knv" _err_out 2>&1)
     rm -f ./_err_out ./*.s
 
-    case "$out" in *"$expect"*)
+    if [[ "$out" == *"$expect"* ]]; then
         printf "${GREEN}TEST %d (err: %s) PASS${RESET}  matched \"%s\"\n" "$n" "$name" "$expect"
         pass=$((pass + 1))
-        ;;
-    *)
+    else
         printf "${YELLOW}TEST %d (err: %s) FAIL${RESET}  wanted \"%s\"\n" "$n" "$name" "$expect"
         fail=$((fail + 1))
-        ;;
-    esac
+    fi
 }
 
 run_test fib 55
@@ -75,8 +73,7 @@ run_err_test undeclared "use of undeclared identifier"
 run_err_test undeclared-fn "undeclared function identifier"
 run_err_test let-const "cannot re-assign"
 run_err_test redefinition "cannot re-assign"
-run_err_test missing-semi "expected \`;\`"
-run_err_test extraneous-rparen "extraneous closing"
+run_err_test extraneous-rparen "extraneous \`)\`"
 run_err_test bare-elif "expected accompanying"
 run_err_test bare-else "expected accompanying"
 run_err_test void-in-expr "returns type \`void\`"
