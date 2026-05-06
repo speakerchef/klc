@@ -5,7 +5,6 @@ use std::rc::Rc;
 
 use crate::ast;
 use crate::backend::CodeGenerator;
-use crate::diagnostics::DiagHandler;
 use crate::irgenerator::IrGenerator;
 use crate::lexer::Lexer;
 use crate::parser::Parser;
@@ -37,19 +36,20 @@ pub struct Compiler {
 impl Compiler {
     pub fn compile(opts: CompileOptions) -> Result<(), Box<dyn Error>> {
         let file = fs::read_to_string(opts.src_pth)?;
-        let mut diagnostics = DiagHandler::new();
         let dst_name = opts.dst_name.unwrap_or(&String::new()).clone();
 
         // Tokenization
         println!("Tokenizing...");
         let mut lex = Lexer::new();
         lex.tokenize(&file)?;
+        let mut diagnostics = std::mem::take(&mut lex.diag);
+        let mut tokens = std::mem::take(&mut lex.tokens);
+        let mut symbol_table = std::mem::take(&mut lex.sym);
 
         // Parsing
         println!("Parsing...");
-        let mut parser = Parser::new(&mut lex, &mut diagnostics)?;
+        let mut parser = Parser::new(&mut tokens, &mut diagnostics);
         let mut program = parser.create_program();
-        let mut symbol_table = std::mem::take(&mut program.sym);
         let mut fn_table = std::mem::take(&mut program.fns);
 
         // Semantic analysis and type inference + checks
@@ -89,7 +89,6 @@ impl Compiler {
                 "/tmp/knobc_asm_out.s",
             ])
             .output()?;
-        println!("AS OUT: {}", str::from_utf8(&_assembler_out.stderr)?);
 
         let oname = format!("./{}", dst_name);
         let _linker_out = Command::new("ld")

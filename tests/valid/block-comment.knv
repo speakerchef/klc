@@ -1,0 +1,12 @@
+
+fn main() -> void {
+    /*
+    * This is a block comment (let x = 20)
+    * Lorem ipsum
+    * Lorem ipsum
+    * Lorem ipsum
+    */
+
+    let x = /* block comment between valid syntax */ 20;
+    exit x;
+}

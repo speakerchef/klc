@@ -1,4 +1,4 @@
-use crate::lexer::{LocData, SymbolTable, TokenType};
+use crate::lexer::{LocData, TokenType};
 use std::cell::Cell;
 use std::fmt::Display;
 use std::{collections::HashMap, rc::Rc};
@@ -288,7 +288,6 @@ pub enum UnionNode {
 
 #[derive(Debug, Default)]
 pub struct Program {
-    pub sym: SymbolTable,
     pub fns: HashMap<Symbol, Rc<StmtFn>>,
     pub stmts: Vec<UnionNode>,
 }

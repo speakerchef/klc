@@ -3,7 +3,7 @@ use std::{cell::Cell, collections::HashMap, error::Error, process::exit, rc::Rc}
 use crate::{
     ast::{self, AtomKind, StmtReturn, Type, VarType},
     diagnostics::DiagHandler,
-    lexer::{self, Lexer, LocData, Op, Symbol, Token, TokenType},
+    lexer::{self, LocData, Op, Symbol, Token, TokenType, TokenVec},
     traits::Iter,
 };
 
@@ -14,25 +14,22 @@ enum ArgVec {
 
 pub struct Parser<'a> {
     diag: &'a mut DiagHandler,
-    lex: &'a mut Lexer,
+    toks: &'a mut TokenVec,
     fns: HashMap<Symbol, Rc<ast::StmtFn>>,
 }
 
 impl Parser<'_> {
-    pub fn new<'a>(
-        lex: &'a mut Lexer,
-        diagnostics: &'a mut DiagHandler,
-    ) -> Result<Parser<'a>, Box<dyn Error>> {
-        Ok(Parser {
-            diag: diagnostics,
-            lex,
+    pub fn new<'a>(toks: &'a mut TokenVec, diag: &'a mut DiagHandler) -> Parser<'a> {
+        Parser {
+            diag,
+            toks,
             fns: HashMap::new(),
-        })
+        }
     }
 
     #[must_use]
     fn validate_tok(&mut self, kind: TokenType) -> bool {
-        if let Some(&tok) = self.lex.peek()
+        if let Some(&tok) = self.toks.peek()
             && tok.kind == kind
         {
             return true;
@@ -79,7 +76,7 @@ impl Parser<'_> {
         };
 
         // Get identifier
-        if let Some(&idtok) = self.lex.peek() {
+        if let Some(&idtok) = self.toks.peek() {
             let TokenType::VarIdent(sym) = idtok.kind else {
                 self.diag.push_err(
                     idtok.loc,
@@ -88,14 +85,14 @@ impl Parser<'_> {
                 return None;
             };
             decl.name = sym;
-            self.lex.next(); // eat ident
+            self.toks.next(); // eat ident
 
             // Check for declared type
-            if let Some(&colon) = self.lex.peek()
+            if let Some(&colon) = self.toks.peek()
                 && matches!(colon.kind, TokenType::Colon)
             {
                 let default = Token::default();
-                let tytok = self.lex.next().unwrap_or(&default); // eat ':'
+                let tytok = self.toks.next().unwrap_or(&default); // eat ':'
                 if !matches!(
                     tytok.kind,
                     TokenType::Ti8
@@ -120,16 +117,16 @@ impl Parser<'_> {
                 } else {
                     decl.decl_type = Some(Type::from(tytok.kind));
                 }
-                self.lex.next(); // eat typename
+                self.toks.next(); // eat typename
             }
             if !self.validate_tok(TokenType::Op(Op::Asgn)) {
                 self.diag
                     .push_err(t.loc, "expected `=` after variable declaration");
             }
-            self.lex.next(); // eat '='
 
+            self.toks.next(); // eat '='
             decl.value = Box::new(if let Some(expr) = self.parse_expr(0., outer_scp) {
-                self.check_semi(self.lex.peek_behind().unwrap().loc);
+                self.check_semi(self.toks.peek_behind().unwrap().loc);
                 expr
             } else {
                 self.diag
@@ -153,23 +150,23 @@ impl Parser<'_> {
         let mut lhs: Option<ast::Expr> = None;
 
         // parenthesized expressions
-        if let Some(&lparen) = self.lex.peek()
+        if let Some(&lparen) = self.toks.peek()
             && matches!(lparen.kind, TokenType::Lparen)
         {
-            self.lex.next(); // eat '('
+            self.toks.next(); // eat '('
             lhs = self.parse_expr(0., outer_scp);
             if !self.validate_tok(TokenType::Rparen) {
                 self.diag.push_err(
-                    self.lex.peek().unwrap_or(&Token::default()).loc,
+                    self.toks.peek().unwrap_or(&Token::default()).loc,
                     "expected closing `)`",
                 );
             } else {
-                self.lex.next(); // eat ')'
+                self.toks.next(); // eat ')'
             }
         }
 
         // early return on delimiters like ; ) } ,
-        if let Some(&tok) = self.lex.peek() {
+        if let Some(&tok) = self.toks.peek() {
             match tok.kind {
                 TokenType::Rparen | TokenType::Semi | TokenType::Rcurly | TokenType::Comma => {
                     return lhs;
@@ -177,7 +174,7 @@ impl Parser<'_> {
                 _ => { /* fall-through */ }
             }
         } else {
-            let prev_token = self.lex.peek_behind().unwrap();
+            let prev_token = self.toks.peek_behind().unwrap();
             self.diag.push_err(
                 prev_token.loc,
                 &format!("expected expression after `{}`", prev_token.kind),
@@ -186,7 +183,7 @@ impl Parser<'_> {
         }
 
         // check operand types
-        if let Some(operand) = &self.lex.peek() {
+        if let Some(operand) = &self.toks.peek() {
             match operand.kind {
                 TokenType::IntLit(val) => {
                     lhs = Some(ast::Expr::default());
@@ -195,12 +192,12 @@ impl Parser<'_> {
                         val,
                         loc: operand.loc,
                     });
-                    self.lex.next(); // eat literal
+                    self.toks.next(); // eat literal
                 }
                 TokenType::VarIdent(sym) => {
                     lhs = Some(ast::Expr::default());
                     lhs.as_mut().unwrap().loc = operand.loc;
-                    if let Some(tok) = self.lex.peek_ahead()
+                    if let Some(tok) = self.toks.peek_ahead()
                         && matches!(tok.kind, TokenType::Lparen)
                     {
                         let call = self.parse_fn_call(sym, outer_scp);
@@ -208,7 +205,7 @@ impl Parser<'_> {
                         if !self.validate_tok(TokenType::Rparen) {
                             self.diag.push_err(call_loc, "expected `)`");
                         } else {
-                            self.lex.next(); // eat ')'
+                            self.toks.next(); // eat ')'
                         }
                         lhs.as_mut().unwrap().ty.set(Some(
                             call.return_ty.get().unwrap_or_else(|| ast::Type::Void),
@@ -219,12 +216,12 @@ impl Parser<'_> {
                             name: sym,
                             loc: operand.loc,
                         });
-                        self.lex.next(); // eat ident
+                        self.toks.next(); // eat ident
                     }
                 }
                 TokenType::Op(op) => match op {
                     Op::Add => {
-                        self.lex.next();
+                        self.toks.next();
                     }
                     Op::Sub => {
                         todo!("Unary negation")
@@ -248,14 +245,14 @@ impl Parser<'_> {
             }
         } else {
             self.diag.push_err(
-                self.lex.peek_behind().unwrap().loc,
+                self.toks.peek_behind().unwrap().loc,
                 "expected operands to expression",
             );
             return lhs;
         }
 
         // Binary expressions
-        while let Some(&tok) = self.lex.peek()
+        while let Some(&tok) = self.toks.peek()
             && tok.kind.is_op()
         {
             let op: Op = Op::from(tok);
@@ -264,7 +261,7 @@ impl Parser<'_> {
             if lbp < min_rbp {
                 break;
             }
-            self.lex.next(); // eat operator
+            self.toks.next(); // eat operator
             if let Some(rhs) = self.parse_expr(rbp, outer_scp) {
                 let aggregate_node = ast::Expr {
                     atom: AtomKind::None,
@@ -288,7 +285,7 @@ impl Parser<'_> {
 
     fn check_semi(&mut self, loc: LocData) {
         match self
-            .lex
+            .toks
             .peek()
             .unwrap_or(&Token {
                 kind: TokenType::Null,
@@ -305,7 +302,7 @@ impl Parser<'_> {
 
     fn parse_stmt_exit(&mut self, outer_scp: &mut ast::Scope) -> ast::StmtExit {
         let expr = self.parse_expr(0., outer_scp);
-        let loc = self.lex.peek_behind().unwrap().loc;
+        let loc = self.toks.peek_behind().unwrap().loc;
         self.check_semi(loc);
         ast::StmtExit {
             exit_code: Box::new(expr.unwrap_or_else(|| {
@@ -321,7 +318,7 @@ impl Parser<'_> {
         let mut stmt_if = ast::StmtIf {
             cond: self.parse_expr(0., outer_scp).unwrap_or_else(|| {
                 self.diag.push_err(
-                    self.lex.peek_behind().unwrap().loc,
+                    self.toks.peek_behind().unwrap().loc,
                     "expected valid `if` condition",
                 );
                 ast::Expr::default()
@@ -335,13 +332,13 @@ impl Parser<'_> {
             stmt_if.scope.fns.insert(k, Rc::clone(v));
         });
 
-        self.lex.next(); // eat '{'
+        self.toks.next(); // eat '{'
         self.parse_scope(&mut stmt_if.scope);
 
-        while let Some(&maybe_elif) = self.lex.peek()
+        while let Some(&maybe_elif) = self.toks.peek()
             && matches!(maybe_elif.kind, TokenType::KwElif)
         {
-            self.lex.next(); // eat 'elif'
+            self.toks.next(); // eat 'elif'
             let mut _elif = ast::StmtElif {
                 cond: self.parse_expr(0., outer_scp).unwrap_or_else(|| {
                     self.diag
@@ -357,15 +354,15 @@ impl Parser<'_> {
             outer_scp.fns.iter().for_each(|(&k, v)| {
                 _elif.scope.fns.insert(k, Rc::clone(v));
             });
-            self.lex.next(); // eat '{'
+            self.toks.next(); // eat '{'
             self.parse_scope(&mut _elif.scope);
             stmt_if._elif.push(Some(_elif));
         }
 
-        if let Some(&maybe_else) = self.lex.peek()
+        if let Some(&maybe_else) = self.toks.peek()
             && matches!(maybe_else.kind, TokenType::KwElse)
         {
-            self.lex.next(); // eat 'else'
+            self.toks.next(); // eat 'else'
             let mut _else = ast::StmtElse {
                 loc: maybe_else.loc,
                 ..Default::default()
@@ -376,7 +373,7 @@ impl Parser<'_> {
             outer_scp.fns.iter().for_each(|(&k, v)| {
                 _else.scope.fns.insert(k, Rc::clone(v));
             });
-            self.lex.next(); // eat '{'
+            self.toks.next(); // eat '{'
             self.parse_scope(&mut _else.scope);
             stmt_if._else = Some(_else);
         }
@@ -387,7 +384,7 @@ impl Parser<'_> {
         let mut stmt_while = ast::StmtWhile {
             cond: self.parse_expr(0., outer_scp).unwrap_or_else(|| {
                 self.diag.push_err(
-                    self.lex.peek_behind().unwrap().loc,
+                    self.toks.peek_behind().unwrap().loc,
                     "expected valid `while` condition",
                 );
                 ast::Expr::default()
@@ -401,7 +398,7 @@ impl Parser<'_> {
             stmt_while.scope.fns.insert(k, Rc::clone(v));
         });
 
-        self.lex.next(); // eat '{'
+        self.toks.next(); // eat '{'
         self.parse_scope(&mut stmt_while.scope);
 
         stmt_while
@@ -409,36 +406,36 @@ impl Parser<'_> {
 
     #[must_use]
     fn parse_argument_pair(&mut self) -> Option<(Symbol, Type)> {
-        let check = self.lex.peek();
+        let check = self.toks.peek();
         if let Some(tok) = check
             && !matches!(tok.kind, TokenType::VarIdent(_))
         {
             return None;
         }
-        self.lex.next(); // also argname and places cursor at `:`
+        self.toks.next(); // also argname and places cursor at `:`
 
         if !self.validate_tok(TokenType::Colon) {
             self.diag
-                .push_err(self.lex.peek_behind().unwrap().loc, "expected `:`");
+                .push_err(self.toks.peek_behind().unwrap().loc, "expected `:`");
             return None;
         }
-        if let (Some(&argname), Some(&ty)) = (self.lex.peek_behind(), self.lex.peek_ahead()) {
+        if let (Some(&argname), Some(&ty)) = (self.toks.peek_behind(), self.toks.peek_ahead()) {
             if ty.kind.is_type_token() && matches!(argname.kind, TokenType::VarIdent(_)) {
                 if let TokenType::VarIdent(sym) = argname.kind {
-                    self.lex.next(); // eat `:`
-                    self.lex.next(); // eat type
+                    self.toks.next(); // eat `:`
+                    self.toks.next(); // eat type
                     Some((sym, Type::from(ty.kind)))
                 } else {
                     // self.lex.next(); // eat `:`
                     self.diag.push_err(
-                        self.lex.peek_behind().unwrap().loc,
+                        self.toks.peek_behind().unwrap().loc,
                         &format!("expected `VarIdent`; got `{}`", argname.kind),
                     );
                     None
                 }
             } else {
                 self.diag.push_err(
-                    self.lex.peek_behind().unwrap().loc,
+                    self.toks.peek_behind().unwrap().loc,
                     "expected valid `Type, Identifier` pair for function arguments",
                 );
                 None
@@ -451,9 +448,9 @@ impl Parser<'_> {
     fn parse_args(&mut self, is_call: bool, outer_scp: &mut ast::Scope) -> Option<ArgVec> {
         if !self.validate_tok(TokenType::Lparen) {
             self.diag
-                .push_err(self.lex.peek_behind().unwrap().loc, "expected `(`");
+                .push_err(self.toks.peek_behind().unwrap().loc, "expected `(`");
         } else {
-            self.lex.next(); // eat '('
+            self.toks.next(); // eat '('
         }
         let mut def_args = Vec::<(Symbol, Type)>::new();
         let mut call_args = Vec::<ast::Expr>::new();
@@ -461,11 +458,11 @@ impl Parser<'_> {
         if is_call {
             loop {
                 let loc = self
-                    .lex
+                    .toks
                     .peek()
                     .unwrap_or_else(|| {
                         self.diag
-                            .push_err(self.lex.peek_behind().unwrap().loc, "expected token");
+                            .push_err(self.toks.peek_behind().unwrap().loc, "expected token");
                         &def
                     })
                     .loc;
@@ -479,17 +476,17 @@ impl Parser<'_> {
                     self.diag
                         .push_err(loc, "expected `,` between function arguments");
                 } else {
-                    self.lex.next(); //eat ',' & advance to next arg
+                    self.toks.next(); //eat ',' & advance to next arg
                 }
             }
         } else {
             loop {
                 let loc = self
-                    .lex
+                    .toks
                     .peek()
                     .unwrap_or_else(|| {
                         self.diag
-                            .push_err(self.lex.peek_behind().unwrap().loc, "expected token");
+                            .push_err(self.toks.peek_behind().unwrap().loc, "expected token");
                         &def
                     })
                     .loc;
@@ -504,7 +501,7 @@ impl Parser<'_> {
                         .push_err(loc, "expected `,` between function arguments");
                     // break;
                 } else {
-                    self.lex.next(); //eat ',' & advance to next type
+                    self.toks.next(); //eat ',' & advance to next type
                 }
             }
         }
@@ -519,14 +516,14 @@ impl Parser<'_> {
 
     fn parse_stmt_fn(&mut self, outer_scp: &mut ast::Scope) -> ast::StmtFn {
         let mut stmt_fn = ast::StmtFn::default();
-        if let Some(tok) = self.lex.peek()
+        if let Some(tok) = self.toks.peek()
             && let TokenType::VarIdent(name) = tok.kind
         {
             stmt_fn.name = name;
-            self.lex.next(); // eat name
+            self.toks.next(); // eat name
         } else {
             self.diag.push_err(
-                self.lex
+                self.toks
                     .peek_behind()
                     .unwrap_or_else(|| {
                         self.diag.display_diagnostics();
@@ -548,7 +545,7 @@ impl Parser<'_> {
 
         if !self.validate_tok(TokenType::Rparen) {
             self.diag.push_err(
-                self.lex
+                self.toks
                     .peek_behind()
                     .unwrap_or_else(|| {
                         self.diag.display_diagnostics();
@@ -558,16 +555,16 @@ impl Parser<'_> {
                 "expected `)`",
             );
         }
-        self.lex.next(); // eat ')'
+        self.toks.next(); // eat ')'
 
-        self.lex.next(); // move ahead to read behind
-        if let Some(tok) = self.lex.peek_behind()
+        self.toks.next(); // move ahead to read behind
+        if let Some(tok) = self.toks.peek_behind()
             && let TokenType::Op(op) = tok.kind
             && matches!(op, Op::ThinArrow)
         // check for '->'
         {
             // self.lex.next(); // eat '->'
-            if let Some(&tok) = self.lex.peek() {
+            if let Some(&tok) = self.toks.peek() {
                 if tok.kind.is_type_token() {
                     stmt_fn.return_ty = Type::from(tok.kind);
                 } else {
@@ -576,7 +573,7 @@ impl Parser<'_> {
                         &format!("expected function return type; received `{}`", tok.kind),
                     );
                 }
-                self.lex.next(); // eat return type
+                self.toks.next(); // eat return type
             } else {
                 self.diag.push_err(tok.loc, "expected function return type");
             }
@@ -587,7 +584,7 @@ impl Parser<'_> {
 
         if !self.validate_tok(TokenType::Lcurly) {
             self.diag.push_err(
-                self.lex
+                self.toks
                     .peek_behind()
                     .unwrap_or_else(|| {
                         self.diag.display_diagnostics();
@@ -597,7 +594,7 @@ impl Parser<'_> {
                 "expected `{`",
             );
         }
-        self.lex.next(); // eat '{'
+        self.toks.next(); // eat '{'
         outer_scp.vars.iter().for_each(|(&k, v)| {
             stmt_fn.body.vars.insert(k, Rc::clone(v));
         });
@@ -617,10 +614,10 @@ impl Parser<'_> {
     fn parse_fn_call(&mut self, name: Symbol, outer_scp: &mut ast::Scope) -> ast::Call {
         let mut call = ast::Call {
             name,
-            loc: self.lex.peek().unwrap().loc, // SAFETY: Guaranteed by entry into function
+            loc: self.toks.peek().unwrap().loc, // SAFETY: Guaranteed by entry into function
             ..ast::Call::default()
         };
-        self.lex.next(); // eat ident
+        self.toks.next(); // eat ident
 
         call.return_ty
             .set(self.fns.get(&name).map(|existing_fn| existing_fn.return_ty));
@@ -643,19 +640,19 @@ impl Parser<'_> {
             loc_scp.fns.insert(k, Rc::clone(v));
         });
 
-        while let Some(&tok) = self.lex.peek() {
+        while let Some(&tok) = self.toks.peek() {
             if matches!(tok.kind, TokenType::Rcurly) {
-                self.lex.next(); // eat '}'
+                self.toks.next(); // eat '}'
                 break; // end of scope
             }
             match tok.kind {
                 TokenType::KwExit => {
-                    self.lex.next(); // eat 'exit'
+                    self.toks.next(); // eat 'exit'
                     let enode = self.parse_stmt_exit(&mut loc_scp);
                     outer_scp.stmts.push(ast::UnionNode::StmtExit(enode));
                 }
                 TokenType::KwLet | TokenType::KwMut => {
-                    self.lex.next(); // eat 'let' | 'mut'
+                    self.toks.next(); // eat 'let' | 'mut'
                     let decl: ast::VarDecl =
                         if let Some(decl_res) = self.parse_var_decl(tok, &mut loc_scp) {
                             decl_res
@@ -672,16 +669,16 @@ impl Parser<'_> {
                 }
                 TokenType::VarIdent(sym) => {
                     // check if fn call
-                    if let Some(tok) = self.lex.peek_ahead()
+                    if let Some(tok) = self.toks.peek_ahead()
                         && matches!(tok.kind, TokenType::Lparen)
                     {
                         let call = self.parse_fn_call(sym, &mut loc_scp);
                         if !self.validate_tok(TokenType::Rparen) {
                             self.diag.push_err(
-                                self.lex.peek_behind().unwrap().loc /* SAFETY: Guaranteed to exist */,
+                                self.toks.peek_behind().unwrap().loc /* SAFETY: Guaranteed to exist */,
                                 "expected `)`");
                         } else {
-                            self.lex.next(); // eat ')'
+                            self.toks.next(); // eat ')'
                         }
                         outer_scp.stmts.push(ast::UnionNode::Call(call));
                     } else {
@@ -694,28 +691,28 @@ impl Parser<'_> {
                     }
                 }
                 TokenType::KwIf => {
-                    self.lex.next(); // eat 'if'
+                    self.toks.next(); // eat 'if'
                     let stmt_if = self.parse_stmt_if(&mut loc_scp);
 
                     outer_scp.stmts.push(ast::UnionNode::StmtIf(stmt_if));
                 }
                 TokenType::KwElif => {
-                    self.lex.next();
+                    self.toks.next();
                     self.diag
                         .push_err(tok.loc, "expected accompanying `if` statement for `elif`");
                 }
                 TokenType::KwElse => {
-                    self.lex.next();
+                    self.toks.next();
                     self.diag
                         .push_err(tok.loc, "expected accompanying `if` statement for `else`");
                 }
                 TokenType::KwWhile => {
-                    self.lex.next(); // eat 'while'
+                    self.toks.next(); // eat 'while'
                     let stmt_while = self.parse_stmt_while(&mut loc_scp);
                     outer_scp.stmts.push(ast::UnionNode::StmtWhile(stmt_while));
                 }
                 TokenType::KwFn => {
-                    self.lex.next(); // eat 'fn'
+                    self.toks.next(); // eat 'fn'
                     let stmt_fn = self.parse_stmt_fn(&mut loc_scp);
                     let sym = stmt_fn.name;
                     let rc = Rc::new(stmt_fn);
@@ -723,17 +720,17 @@ impl Parser<'_> {
                     outer_scp.stmts.push(ast::UnionNode::StmtFn(rc));
                 }
                 TokenType::KwReturn => {
-                    self.lex.next(); // eat 'return'
+                    self.toks.next(); // eat 'return'
                     let ret = self.parse_stmt_return(&mut loc_scp);
                     outer_scp.stmts.push(ast::UnionNode::StmtReturn(ret));
                 }
                 TokenType::Semi => {
-                    self.lex.next();
+                    self.toks.next();
                     continue;
                 }
                 // parses raw scope
                 TokenType::Lcurly => {
-                    self.lex.next();
+                    self.toks.next();
                     let mut scp = ast::Scope::default();
                     self.parse_scope(&mut loc_scp);
                     scp.stmts.append(&mut loc_scp.stmts);
@@ -741,7 +738,7 @@ impl Parser<'_> {
                 }
                 _ => {
                     eprintln!("Unhandled Type: {:?}", tok);
-                    self.lex.next();
+                    self.toks.next();
                 }
             }
         }
@@ -751,7 +748,6 @@ impl Parser<'_> {
         let mut global_scope = ast::Scope::default();
         self.parse_scope(&mut global_scope);
         ast::Program {
-            sym: std::mem::take(&mut self.lex.sym),
             stmts: global_scope.stmts,
             fns: std::mem::take(&mut self.fns),
         }

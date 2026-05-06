@@ -1,4 +1,4 @@
-use crate::traits::Iter;
+use crate::{diagnostics::DiagHandler, traits::Iter};
 use std::{collections::HashMap, error::Error, fmt::Display, panic, rc::Rc};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -290,16 +290,19 @@ pub struct Token {
     pub loc: LocData,
 }
 
-#[derive(Debug)]
-pub struct Lexer {
-    pub sym: SymbolTable,
+#[derive(Debug, Default)]
+pub struct TokenVec {
     tokens: Vec<Token>,
     tok_ptr: usize,
-    line_ct: usize,
-    col_ct: usize,
 }
 
-impl Iter for Lexer {
+impl TokenVec {
+    pub fn push(&mut self, val: Token) {
+        self.tokens.push(val);
+    }
+}
+
+impl Iter for TokenVec {
     type Item = Token;
 
     fn peek(&self) -> Option<&Self::Item> {
@@ -320,24 +323,24 @@ impl Iter for Lexer {
     }
 }
 
-impl Default for Lexer {
-    fn default() -> Self {
-        Lexer {
-            tokens: vec![],
-            sym: SymbolTable {
-                map: HashMap::new(),
-                symbols: Vec::new(),
-            },
-            tok_ptr: 0,
-            line_ct: 1,
-            col_ct: 1,
-        }
-    }
+#[derive(Debug)]
+pub struct Lexer {
+    pub sym: SymbolTable,
+    pub diag: DiagHandler,
+    pub tokens: TokenVec,
+    line_ct: usize,
+    col_ct: usize,
 }
 
 impl Lexer {
     pub fn new() -> Lexer {
-        Self::default()
+        Lexer {
+            sym: SymbolTable::default(),
+            tokens: TokenVec::default(),
+            diag: DiagHandler::default(),
+            line_ct: 1,
+            col_ct: 1,
+        }
     }
     fn parse_delim(&mut self, kind: TokenType, buf: &mut String) -> Result<(), Box<dyn Error>> {
         let loc = LocData {
@@ -357,6 +360,39 @@ impl Lexer {
             self.tokens.push(Token { kind, loc });
         }
         Ok(())
+    }
+    fn parse_comments(
+        &mut self,
+        file_it: &mut std::iter::Peekable<std::str::Chars<'_>>,
+        buf: &mut String,
+    ) {
+        // Line comments
+        if buf == "//" {
+            while let Some(ch) = file_it.next() {
+                if ch == '\n' {
+                    break;
+                }
+            }
+            buf.clear();
+            return;
+        }
+
+        // Block comments
+        if buf == "/*" {
+            let mut end_comment_buf = String::new();
+            while let Some(ch) = file_it.next() {
+                if ch == '*' || ch == '/' {
+                    end_comment_buf.push(ch);
+                }
+                if end_comment_buf.len() == 2 && end_comment_buf == "*/" {
+                    break;
+                } else if end_comment_buf.len() == 2 {
+                    end_comment_buf.clear();
+                }
+            }
+            buf.clear();
+            return;
+        }
     }
 
     pub fn tokenize(&mut self, file: &str) -> Result<(), Box<dyn Error>> {
@@ -397,6 +433,18 @@ impl Lexer {
                         {
                             buf.push(doub_op);
                             file_it.next();
+
+                            // Line comments
+                            if buf == "//" {
+                                self.parse_comments(&mut file_it, &mut buf);
+                                continue;
+                            }
+                            // Block comments
+                            if buf == "/*" {
+                                self.parse_comments(&mut file_it, &mut buf);
+                                continue;
+                            }
+
                             self.col_ct += 1;
                             if let Some(&trip_op) = file_it.peek()
                                 && "+-*/<>=|&^!%".contains(trip_op)

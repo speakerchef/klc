@@ -1,0 +1,7 @@
+fn main() -> void {
+    // this is a comment
+
+    // this is another comment
+    let x = 20; // this is an inline comment
+    exit x;
+}

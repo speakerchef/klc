@@ -11,7 +11,6 @@
     - [ ] restructure semantically as variable declaration with optional `mut` binding
 
 >TODOS
-- [ ] comments
 - [ ] check `return` type against func declared return type
 - [ ] Allow expressions in function calls
 - [ ] No unary negation
@@ -23,6 +22,7 @@
 - [ ] Make errors consistent and more robust. ( **large** )
 
 > DONE
+- [x] comments
 - [x] fix void function in expression panic error
 - [x] add tests for expected error messages
 - [x] add test and run scripts

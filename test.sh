@@ -66,6 +66,8 @@ run_test cond 100
 run_test loop 50
 run_test fn 100
 run_test expr 12
+run_test line-comment 20
+run_test block-comment 20
 
 echo
 echo "--- error tests ---"
