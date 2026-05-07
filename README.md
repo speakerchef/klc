@@ -2,12 +2,8 @@
 >(This is a Rust re-design & re-write of my original; [Original C++ Version](https://github.com/speakerchef/klc-compiler))
 >Re-write also includes and will include a great deal of architectural changes both internally and language-definition wise.
 
-- Knobc is a compiler for the **KNOB** (**K**ompiled **NOB**) programming language —
-`Knob` is a statically typed, AOT-compiled language I'm creating that emits a custom defined IR (Intermediate Representation) called `klir` - emitting assembly for a few backends: Namely AArch64 (Apple Silicon & Linux) & x86_64(eventually):
-- As of now, only Apple Silicon Arm64 assembly is emitted. Linux Arm64 will be implemented as the compiler matures.
-
-> [!NOTE]
-> The original C++ version of the compiler emitted raw AArch64 assembly. The new re-write with an MIR level will allow for optimization passes, multiple backends, and other cool stuff!
+- Knobc is a fun learning project of mine that is a compiler for the **KNOB** (**K**ompiled **NOB**) programming language that I'm creating.
+- `Knob` is a statically typed, AOT-compiled language I'm creating. Its syntax is a soup of features I thought were cool from other languages plus some of my personal touches. Knobc emits a custom IR (Intermediate Representation) called `klir` ([SPEC](./KLIR-schema/SPEC.md)) - emitting assembly for a few backends: Namely AArch64 (Apple Silicon & Linux) & x86_64(eventually).
 
 Uses `.knv` as the file extension.
 > *Why `.knv` and not `.knb`?*
@@ -22,12 +18,12 @@ Source → Lexer → Parser → AST → Type-Checking / Semantic Analysis → Ty
 - **Lexer/Tokenizer**: tokenizes `.knv` source into a stream of typed tokens
 - **Parser**: Pratt-Parsing with precedence climbing for expressions and Recursive-Descent parsing for the rest, producing an untyped-AST.
 - **Type-Checking** and **Semantic Analysis** that resolves types and mutates the untyped-AST into a typed-AST. Semantic errors are also evaluated here.
+- **Diagnostics Handler**: This stage accumulates all errors, warnings, and notes from the above stages and if error-free, proceeds to the below stages.
 - **KLIR-Generation**: Typed-AST is walked and KLIR is emitted for each node/operation/etc...
 - **Optimization (Later scope)**: Will analyze the IR for patterns to exploit and optimize
 - **Codegen** — Currently targeting only AArch64 (Apple Silicon / macOS Darwin ABI). (x86_64 support in the future). No LLVM or other backends/deps.
 ---
 ## Language features
->KNOB is a fun project of mine still under active construction.
 
 ### Types (so far)
 >[!NOTE] 
@@ -70,9 +66,6 @@ Source → Lexer → Parser → AST → Type-Checking / Semantic Analysis → Ty
 | Comments | `//` `/* */` | Line comments and Block comments |
 | Operate-Assign | `+=` `-=` `*=` `/=` `%=` `**=` `&=` `\|=` `<<=` `>>=` | Combine operation and assignment |
 
-
->[!WARNING] 
-> The below is stale from the original C++ codebase - will update as things move
 ---
 ## Build & Generate Executable
 
@@ -91,18 +84,6 @@ alias knob='path/to/knobc'
 [ knob | ./knobc ] build <FILE.knv> <EXEC-NAME> 
 # Run
 [ knob | ./knobc ] run <FILE.knv>
-```
-
-### Execute
-
-```bash
-./executable
-
-# Or benchmark
-time ./executable
-
-# Check exit code
-echo $?
 ```
 
 ---
