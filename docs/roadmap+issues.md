@@ -4,7 +4,6 @@
 
 
 > ISSUES
-- [ ] **ISSUE**: Parenthesized expressions with `sub` & `add` op `(1 + 2) - 4` fail
 - [ ] **ISSUE**: Infinite loop when function definition args are in reverse pair order (i.e. \<T>: \<name>)
 - [ ] **ISSUE**: No type coercion check for caller passed arguments against function def arg types and return type
 - [ ] **ISSUE**: /tmp file collision when compiling multiple files simultaneously
@@ -12,7 +11,6 @@
 > TODOS
 - [ ] Check `return` type against func declared return type
 - [ ] Allow expressions in function calls
-- [ ] Unary negation
 - [ ] Allow for more than 8 function arguments; store on stack.
 - [ ] check caller passed argument types against function definition types
 - [ ] add errors for too little arguments, too many arguments, expected arguments, unexpected arguments, in sema
@@ -23,6 +21,8 @@
     - [ ] restructure semantically as variable declaration with optional `mut` binding
 
 > DONE
+- [x] **ISSUE**: Parenthesized expressions with `sub` & `add` op `(1 + 2) - 4` fail
+- [x] Unary negation
 - [x] **ISSUE**: Label collision issue in pwr codegen
 - [x] **ISSUE**: panics when no return type is given to functions; 
 - [x] **ISSUE** with default-void setting logic

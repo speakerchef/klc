@@ -61,6 +61,7 @@ run_err_test() {
 
 run_test fib 55
 run_test operators 54
+run_test unary-negation 236
 run_test exponent 128
 run_test fact 120
 run_test gcd 12

@@ -322,23 +322,23 @@ impl IrGenerator<'_> {
         expr: &ast::Expr,
         outer_scp: &mut ProgScope,
     ) -> (ast::AtomKind, Option<String /*temp register*/>) {
+        let dest = format!("t{}", self.reg_counter);
+        self.reg_counter += 1;
         if let (Some(lhs), Some(rhs)) = (&expr.lhs, &expr.rhs) {
-            let lvalue = self.visit_expr(lhs, outer_scp);
-            let rvalue = self.visit_expr(rhs, outer_scp);
-            let dest = format!("t{}", self.reg_counter);
-            self.reg_counter += 1;
+            let (latom, ltemp) = self.visit_expr(lhs, outer_scp);
+            let (ratom, rtemp) = self.visit_expr(rhs, outer_scp);
 
-            let lhs = match lvalue.0 {
+            let lhs = match latom {
                 ast::AtomKind::Ident(id) => ArgKind::Sym(id.name.to_string()),
                 ast::AtomKind::IntLit(value) => ArgKind::Imm(value.val),
                 ast::AtomKind::Call(call) => ArgKind::Call(Call::from_ast_call(&call, self.sym)),
-                ast::AtomKind::None => ArgKind::Temp(lvalue.1.as_ref().unwrap().clone()),
+                ast::AtomKind::None => ArgKind::Temp(ltemp.as_ref().unwrap().clone()),
             };
-            let rhs = match rvalue.0 {
+            let rhs = match ratom {
                 ast::AtomKind::Ident(id) => ArgKind::Sym(id.name.to_string()),
                 ast::AtomKind::IntLit(value) => ArgKind::Imm(value.val),
                 ast::AtomKind::Call(call) => ArgKind::Call(Call::from_ast_call(&call, self.sym)),
-                ast::AtomKind::None => ArgKind::Temp(rvalue.1.as_ref().unwrap().clone()),
+                ast::AtomKind::None => ArgKind::Temp(rtemp.as_ref().unwrap().clone()),
             };
 
             outer_scp.ir.nodes.push(KlirNode::Expr(Expr {
@@ -348,6 +348,29 @@ impl IrGenerator<'_> {
                     .expect("Could not resolve type at temp register allocation"),
                 lhs,
                 rhs,
+                op: if matches!(expr.op, lexer::Op::Lsr) && expr.ty.get().unwrap().is_signed() {
+                    lexer::Op::Asr
+                } else {
+                    expr.op
+                },
+                dest: dest.clone(),
+            }));
+            return (expr.atom.clone(), Some(dest));
+        } else if let Some(rhs) = &expr.rhs {
+            let (ratom, rtemp) = self.visit_expr(rhs, outer_scp);
+            let unary_expr = match ratom {
+                ast::AtomKind::Ident(id) => ArgKind::Sym(id.name.to_string()),
+                ast::AtomKind::IntLit(value) => ArgKind::Imm(value.val),
+                ast::AtomKind::Call(call) => ArgKind::Call(Call::from_ast_call(&call, self.sym)),
+                ast::AtomKind::None => ArgKind::Temp(rtemp.as_ref().unwrap().clone()),
+            };
+            outer_scp.ir.nodes.push(KlirNode::Expr(Expr {
+                ty: expr
+                    .ty
+                    .get()
+                    .expect("Could not resolve type at temp register allocation"),
+                lhs: ArgKind::Imm(0),
+                rhs: unary_expr,
                 op: if matches!(expr.op, lexer::Op::Lsr) && expr.ty.get().unwrap().is_signed() {
                     lexer::Op::Asr
                 } else {

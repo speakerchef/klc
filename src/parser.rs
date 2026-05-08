@@ -188,9 +188,10 @@ impl Parser<'_> {
                         && matches!(tok.kind, TokenType::Lparen)
                     {
                         let call = self.parse_fn_call(sym, outer_scp);
-                        lhs.as_mut().unwrap().ty.set(Some(
-                            call.return_ty.get().unwrap_or_else(|| ast::Type::Void),
-                        ));
+                        lhs.as_mut()
+                            .unwrap()
+                            .ty
+                            .set(Some(call.return_ty.get().unwrap_or(ast::Type::Void)));
                         lhs.as_mut().unwrap().atom = AtomKind::Call(call);
                     } else {
                         lhs.as_mut().unwrap().atom = AtomKind::Ident(ast::Ident {
@@ -202,11 +203,9 @@ impl Parser<'_> {
                 }
                 TokenType::Op(op) => match op {
                     Op::Add => {
-                        self.toks.next();
+                        self.toks.next(); // eat '+'
                     }
-                    Op::Sub => {
-                        todo!("Unary negation")
-                    }
+                    Op::Sub => {}
                     Op::Nop => {
                         return None;
                     }
@@ -237,6 +236,7 @@ impl Parser<'_> {
             && tok.kind.is_op()
         {
             let op: Op = Op::from(tok);
+            println!("OP: {op}");
             assert_ne!(op, Op::Nop);
             let (lbp, rbp) = self.get_infix_bp(op);
             if lbp < min_rbp {
@@ -246,13 +246,27 @@ impl Parser<'_> {
             if let Some(rhs) = self.parse_expr(rbp, outer_scp) {
                 let aggregate_node = ast::Expr {
                     atom: AtomKind::None,
-                    loc: lhs.as_ref().unwrap().loc,
+                    loc: if let Some(left) = &lhs {
+                        left.loc
+                    } else {
+                        if !matches!(op, Op::Sub) {
+                            self.diag.push_err(
+                                rhs.loc,
+                                &format!(
+                                    "expected lhs operand in binary expression before `{}`",
+                                    op
+                                ),
+                            )
+                        }
+                        rhs.loc
+                    },
                     op,
-                    lhs: Some(Box::new(lhs.unwrap())),
+                    lhs: lhs.map(|left| Box::new(left)),
                     rhs: Some(Box::new(rhs)),
                     ty: Cell::new(None),
                 };
                 lhs = Some(aggregate_node);
+                println!("LHS HERE: {:#?}", lhs);
             } else {
                 self.diag.push_err(
                     tok.loc,
