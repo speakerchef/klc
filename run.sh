@@ -5,10 +5,9 @@ if [ $# == 0 ]; then
 fi
 
 #check if any build errors
-fin=Finished
-out=$(cargo build --release 2>&1)
-if [[ "$out" != *"$fin"* ]]; then
-    printf "run: \n%s" "$out"
+out=$(cargo build --release 2>&1) ec=$?
+if [[ $ec != 0 ]]; then
+    printf "run failed with code [ $ec ]: \n%s" "$out"
     exit 1
 fi
 
@@ -30,10 +29,14 @@ elif [ "$MODE" == "$tmode" ]; then
     ec=$?
     ~/Programming/knobc/test.sh
 else
-    $KNOBC build "$KNV_FILENAME" out >/dev/null 2>&1 && ./out
+    output=$("$KNOBC" build "$KNV_FILENAME" out 2>&1) rc=$?
+    if [[ $rc != 0 ]]; then
+        printf "Compilation failed with errors: \n%s\n" "$output"
+        exit 1
+    fi
+    ./out
     ec=$?
 fi
 
 rm ./out
-rm $KNOBC
 printf "Exit code: %d\n" $ec

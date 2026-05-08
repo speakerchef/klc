@@ -1,0 +1,14 @@
+fn main() {
+    mut res = 50 + 50 - 25
+    res = res / 5
+    res = res * 4 //60
+    let mod = res % 7 //4
+    mut flag = mod & 4
+    flag = flag | 1 + 9
+    flag = flag ^ flag //0
+    res = (res / 4) / 3
+    res = res ** 2
+    res = res + 5 ** 2//50
+    res = res + flag + mod
+    exit res // expect 54
+}

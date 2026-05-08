@@ -1,10 +1,8 @@
 #!/bin/bash
 #check if any build errors
-fin=Finished
-out=$(cargo build --release 2>&1)
-echo "$out"
-if [[ "$out" != *"$fin"* ]]; then
-    printf "run: \n%s" "$out"
+out=$(cargo build --release 2>&1) ec=$?
+if [[ $ec != 0 ]]; then
+    printf "run failed with code [ $ec ]: \n%s" "$out"
     exit 1
 fi
 
@@ -25,7 +23,12 @@ run_test() {
     expect=$2
     n=$((n + 1))
 
-    "$KNOBC" build "$KNV_DIR/$name.knv" _valid_out >/dev/null 2>&1
+    output=$("$KNOBC" build "$KNV_DIR/$name.knv" _valid_out 2>&1) rc=$?
+    if [[ $rc != 0 ]]; then
+        printf "Compilation failed with errors: \n%s\n" "$output"
+        exit 1
+    fi
+
     ./_valid_out
     got=$?
     rm -f ./_valid_out ./*.s
@@ -57,7 +60,8 @@ run_err_test() {
 }
 
 run_test fib 55
-run_test power 128
+run_test operators 54
+run_test exponent 128
 run_test fact 120
 run_test gcd 12
 run_test cond 100

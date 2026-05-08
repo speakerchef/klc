@@ -57,6 +57,7 @@ pub struct CodeGenerator {
     scopes: Vec<ProgScope>,
     pub asm: String,
     fns_map: FunctionMap,
+    label_counter: usize,
 }
 
 impl CodeGenerator {
@@ -65,6 +66,7 @@ impl CodeGenerator {
             scopes,
             asm: String::new(),
             fns_map: HashMap::new(),
+            label_counter: 0,
         }
     }
     fn resolve_integer_resolution(&mut self, val: i128) -> ast::Type {
@@ -195,22 +197,29 @@ impl CodeGenerator {
             lexer::Op::Eq => cmp("eq"),
             lexer::Op::Neq => cmp("ne"),
             lexer::Op::Pwr => {
-                scp.data.push_str("    cbnz    x10, BASE_CASE_1\n"); // deg == 0
-                scp.data.push_str("    mov     x8, 1\n");
-                scp.data.push_str("    b       PWR_LOOP_END\n");
+                let pwr_bc_lbl = format!(".PWR_BC.{}", self.label_counter);
+                let pwr_start_lbl = format!(".PWR_START.{}", self.label_counter);
+                let pwr_end_lbl = format!(".PWR_END.{}", self.label_counter);
+                self.label_counter += 1;
 
-                scp.data.push_str("BASE_CASE_1:\n"); // deg == 1
+                scp.data
+                    .push_str(&format!("    cbnz    x10, {pwr_bc_lbl}\n")); // deg == 0
+                scp.data.push_str("    mov     x8, 1\n");
+                scp.data.push_str(&format!("    b       {pwr_end_lbl}\n"));
+
+                scp.data.push_str(&format!("{pwr_bc_lbl}:\n")); // deg == 1
                 scp.data.push_str("    mov     x8, x9\n"); // move lhs into accum
                 scp.data.push_str("    cmp     x10, 1\n");
-                scp.data.push_str("    bne     PWR_LOOP_START\n");
-                scp.data.push_str("    b       PWR_LOOP_END\n");
+                scp.data.push_str(&format!("    bne     {pwr_start_lbl}\n"));
+                scp.data.push_str(&format!("    b       {pwr_end_lbl}\n"));
 
-                scp.data.push_str("PWR_LOOP_START:\n");
+                scp.data.push_str(&format!("{pwr_start_lbl}:\n"));
                 scp.data.push_str("    sub     x10, x10, 1\n");
-                scp.data.push_str("    cbz    x10, PWR_LOOP_END\n");
+                scp.data
+                    .push_str(&format!("    cbz    x10, {pwr_end_lbl}\n"));
                 scp.data.push_str("    mul     x8, x8, x9\n"); // accum * lhs
-                scp.data.push_str("    b       PWR_LOOP_START\n");
-                scp.data.push_str("PWR_LOOP_END:\n");
+                scp.data.push_str(&format!("    b       {pwr_start_lbl}\n"));
+                scp.data.push_str(&format!("{pwr_end_lbl}:\n"));
             }
             _ => todo!("This operator is not implemented for codegen"),
         }
@@ -551,20 +560,27 @@ impl CodeGenerator {
     }
 
     fn emit_prologue(&mut self, scp: &mut AsmScope) {
-        let _amt = scp.stackptr.next_multiple_of(16) + 16; /* +16 to account for FP & Link register `stp` */
         scp.data.insert_str(0, "    mov     x29, sp \n");
-        scp.data
-            // .insert_str(0, &format!("    stp     x29, x30, [sp, -{}]!\n", amt));
-            .insert_str(
+        if scp.stacksz <= 512 {
+            scp.data.insert_str(
                 0,
                 &format!("    stp     x29, x30, [sp, -{}]!\n", scp.stacksz),
             );
+        } else {
+            scp.data.insert_str(0, "    stp     x29, x30, [sp, 0]\n");
+            scp.data
+                .insert_str(0, &format!("    sub     sp, sp, {}\n", scp.stacksz));
+        }
     }
     fn emit_epilogue(&mut self, scp: &mut AsmScope) {
-        let _amt = scp.stackptr.next_multiple_of(16) + 16;
-        scp.data
-            // .push_str(&format!("    ldp     x29, x30, [sp], {}\n", amt));
-            .push_str(&format!("    ldp     x29, x30, [sp], {}\n", scp.stacksz));
+        if scp.stacksz <= 512 {
+            scp.data
+                .push_str(&format!("    ldp     x29, x30, [sp], {}\n", scp.stacksz));
+        } else {
+            scp.data.insert_str(0, "    ldp     x29, x30, [sp, 0]\n");
+            scp.data
+                .insert_str(0, &format!("    add     sp, sp, {}\n", scp.stacksz));
+        }
     }
     fn emit_metadata(&mut self, md: AsmMetadata) {
         self.asm
